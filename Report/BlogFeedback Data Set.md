@@ -1,0 +1,12488 @@
+# Analysing the 'BlogFeedback Data Set' from the UC Irvine Machine Learning repository
+
+This notebook is used to analyze the 'BlogFeedback Data Set' from the UC Irvine Machine Learning repository. The data set is available [here](https://archive.ics.uci.edu/ml/datasets/BlogFeedback). **The objective of the notebook is to create a model to predict the number of comments in a blog post in the upcoming 24 hours**.
+
+This data originates from blog posts. The raw HTML-documents of the blog posts were crawled and processed. In the train data, the basetimes were in the years 2010 and 2011. In the test data the basetimes were in February and March 2012.
+
+**The data set has 280 attributes. Therefore, in this notebooks we test different techniques to deal with this large number of attributes**. First, we analyze the whole data set without any kind of adjustment. This will be our reference model. Then, we test some feature selection methods to identify the most relevant attributes to predict the target value. Finally, we test the Principal Component Analysis (PCA) dimensionality reduction method.
+
+The notebook is organized as follows:
+
+1. Data exploration
+2. Train ML model
+3. Evaluate the ML model
+4. Conclusion
+
+----------
+
+## 1. Data exploration
+
+In this section, we explore the characteristics of the data set, including its dimensions and characteristics of its variables.
+
+The data set contains 281 columns and 52397 rows.
+
+The attributes of the data set are the following:
+
+Column:
+- 1...50: Average, standard deviation, min, max and median of the Attributes 51...60 for the source of the current blog post. With source we mean the blog on which the post appeared. For example, myblog.blog.org would be the source of the post myblog.blog.org/post_2010_09_10
+- 51: Total number of comments before basetime
+- 52: Number of comments in the last 24 hours before the basetime
+- 53: Let T1 denote the datetime 48 hours before basetime. Let T2 denote the datetime 24 hours before basetime. This attribute is the number of comments in the time period between T1 and T2
+- 54: Number of comments in the first 24 hours after the publication of the blog post, but before basetime
+- 55: The difference of Attribute 52 and Attribute 53
+- 56...60: The same features as the attributes 51...55, but features 56...60 refer to the number of links (trackbacks), while features 51...55 refer to the number of comments.
+- 61: The length of time between the publication of the blog post and basetime
+- 62: The length of the blog post
+- 63...262: The 200 bag of words features for 200 frequent words of the text of the blog post
+- 263...269: binary indicator features (0 or 1) for the weekday (Monday...Sunday) of the basetime
+- 270...276: binary indicator features (0 or 1) for the weekday (Monday...Sunday) of the date of publication of the blog post
+- 277: Number of parent pages: we consider a blog post P as a parent of blog post B, if B is a reply (trackback) to blog post P.
+- 278...280: Minimum, maximum, average number of comments that the parents received
+- 281: The target: the number of comments in the next 24 hours (relative to basetime)
+
+
+```python
+import pandas as pd
+import numpy as np
+#!pip install -U scikit-learn
+```
+
+----------
+
+### Getting the data
+
+
+```python
+attributes = [*range(1, 282, 1)]
+
+df_data = pd.read_csv('/Users/leuzinger/Dropbox/Data Science/Awari/Regressions/BlogFeedback/blogData_train.csv',names=attributes)
+df_data.reset_index(inplace=False)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.max_rows', None)
+df_data.info()
+```
+
+    <class 'pandas.core.frame.DataFrame'>
+    RangeIndex: 52397 entries, 0 to 52396
+    Columns: 281 entries, 1 to 281
+    dtypes: float64(281)
+    memory usage: 112.3 MB
+
+
+
+```python
+att=[]
+for i in ['total','last24h','24-48h','first24h','difference',
+           'total_tr','last24h_tr','24-48h_tr','first24h_tr','difference_tr']:
+    att1 = 'blog_avg_' + str(i)
+    att2 = 'blog_std_' + str(i)
+    att3 = 'blog_min_' + str(i)
+    att4 = 'blog_max_' + str(i)
+    att5 = 'blog_median_' + str(i)
+    att.extend([att1,att2,att3,att4,att5])
+
+att51_62 = ['total','last24h','24-48h','first24h','difference',
+           'total_tr','last24h_tr','24-48h_tr','first24h_tr','difference_tr',
+           'time_first_post','lenght_post']
+att.extend(att51_62)
+
+for i in range(63,263):
+    att_word = 'word' + str(i-62)
+    att.extend([att_word])
+
+att263_281 = ['Mon_bl','Tue_bl','Wed_bl','Thu_bl','Fri_bl','Sat_bl','Sun_bl',
+             'Mon_post','Tue_post','Wed_post','Thu_post','Fri_post','Sat_post','Sun_post',
+             'parent_pages','min_parent','max_parent','avg_parent','target']
+att.extend(att263_281)
+```
+
+
+```python
+df_data.set_axis(att,axis=1,inplace=True)
+df_data.head()
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>blog_avg_total</th>
+      <th>blog_std_total</th>
+      <th>blog_min_total</th>
+      <th>blog_max_total</th>
+      <th>blog_median_total</th>
+      <th>blog_avg_last24h</th>
+      <th>blog_std_last24h</th>
+      <th>blog_min_last24h</th>
+      <th>blog_max_last24h</th>
+      <th>blog_median_last24h</th>
+      <th>blog_avg_24-48h</th>
+      <th>blog_std_24-48h</th>
+      <th>blog_min_24-48h</th>
+      <th>blog_max_24-48h</th>
+      <th>blog_median_24-48h</th>
+      <th>blog_avg_first24h</th>
+      <th>blog_std_first24h</th>
+      <th>blog_min_first24h</th>
+      <th>blog_max_first24h</th>
+      <th>blog_median_first24h</th>
+      <th>blog_avg_difference</th>
+      <th>blog_std_difference</th>
+      <th>blog_min_difference</th>
+      <th>blog_max_difference</th>
+      <th>blog_median_difference</th>
+      <th>blog_avg_total_tr</th>
+      <th>blog_std_total_tr</th>
+      <th>blog_min_total_tr</th>
+      <th>blog_max_total_tr</th>
+      <th>blog_median_total_tr</th>
+      <th>blog_avg_last24h_tr</th>
+      <th>blog_std_last24h_tr</th>
+      <th>blog_min_last24h_tr</th>
+      <th>blog_max_last24h_tr</th>
+      <th>blog_median_last24h_tr</th>
+      <th>blog_avg_24-48h_tr</th>
+      <th>blog_std_24-48h_tr</th>
+      <th>blog_min_24-48h_tr</th>
+      <th>blog_max_24-48h_tr</th>
+      <th>blog_median_24-48h_tr</th>
+      <th>blog_avg_first24h_tr</th>
+      <th>blog_std_first24h_tr</th>
+      <th>blog_min_first24h_tr</th>
+      <th>blog_max_first24h_tr</th>
+      <th>blog_median_first24h_tr</th>
+      <th>blog_avg_difference_tr</th>
+      <th>blog_std_difference_tr</th>
+      <th>blog_min_difference_tr</th>
+      <th>blog_max_difference_tr</th>
+      <th>blog_median_difference_tr</th>
+      <th>total</th>
+      <th>last24h</th>
+      <th>24-48h</th>
+      <th>first24h</th>
+      <th>difference</th>
+      <th>total_tr</th>
+      <th>last24h_tr</th>
+      <th>24-48h_tr</th>
+      <th>first24h_tr</th>
+      <th>difference_tr</th>
+      <th>time_first_post</th>
+      <th>lenght_post</th>
+      <th>word1</th>
+      <th>word2</th>
+      <th>word3</th>
+      <th>word4</th>
+      <th>word5</th>
+      <th>word6</th>
+      <th>word7</th>
+      <th>word8</th>
+      <th>word9</th>
+      <th>word10</th>
+      <th>word11</th>
+      <th>word12</th>
+      <th>word13</th>
+      <th>word14</th>
+      <th>word15</th>
+      <th>word16</th>
+      <th>word17</th>
+      <th>word18</th>
+      <th>word19</th>
+      <th>word20</th>
+      <th>word21</th>
+      <th>word22</th>
+      <th>word23</th>
+      <th>word24</th>
+      <th>word25</th>
+      <th>word26</th>
+      <th>word27</th>
+      <th>word28</th>
+      <th>word29</th>
+      <th>word30</th>
+      <th>word31</th>
+      <th>word32</th>
+      <th>word33</th>
+      <th>word34</th>
+      <th>word35</th>
+      <th>word36</th>
+      <th>word37</th>
+      <th>word38</th>
+      <th>word39</th>
+      <th>word40</th>
+      <th>word41</th>
+      <th>word42</th>
+      <th>word43</th>
+      <th>word44</th>
+      <th>word45</th>
+      <th>word46</th>
+      <th>word47</th>
+      <th>word48</th>
+      <th>word49</th>
+      <th>word50</th>
+      <th>word51</th>
+      <th>word52</th>
+      <th>word53</th>
+      <th>word54</th>
+      <th>word55</th>
+      <th>word56</th>
+      <th>word57</th>
+      <th>word58</th>
+      <th>word59</th>
+      <th>word60</th>
+      <th>word61</th>
+      <th>word62</th>
+      <th>word63</th>
+      <th>word64</th>
+      <th>word65</th>
+      <th>word66</th>
+      <th>word67</th>
+      <th>word68</th>
+      <th>word69</th>
+      <th>word70</th>
+      <th>word71</th>
+      <th>word72</th>
+      <th>word73</th>
+      <th>word74</th>
+      <th>word75</th>
+      <th>word76</th>
+      <th>word77</th>
+      <th>word78</th>
+      <th>word79</th>
+      <th>word80</th>
+      <th>word81</th>
+      <th>word82</th>
+      <th>word83</th>
+      <th>word84</th>
+      <th>word85</th>
+      <th>word86</th>
+      <th>word87</th>
+      <th>word88</th>
+      <th>word89</th>
+      <th>word90</th>
+      <th>word91</th>
+      <th>word92</th>
+      <th>word93</th>
+      <th>word94</th>
+      <th>word95</th>
+      <th>word96</th>
+      <th>word97</th>
+      <th>word98</th>
+      <th>word99</th>
+      <th>word100</th>
+      <th>word101</th>
+      <th>word102</th>
+      <th>word103</th>
+      <th>word104</th>
+      <th>word105</th>
+      <th>word106</th>
+      <th>word107</th>
+      <th>word108</th>
+      <th>word109</th>
+      <th>word110</th>
+      <th>word111</th>
+      <th>word112</th>
+      <th>word113</th>
+      <th>word114</th>
+      <th>word115</th>
+      <th>word116</th>
+      <th>word117</th>
+      <th>word118</th>
+      <th>word119</th>
+      <th>word120</th>
+      <th>word121</th>
+      <th>word122</th>
+      <th>word123</th>
+      <th>word124</th>
+      <th>word125</th>
+      <th>word126</th>
+      <th>word127</th>
+      <th>word128</th>
+      <th>word129</th>
+      <th>word130</th>
+      <th>word131</th>
+      <th>word132</th>
+      <th>word133</th>
+      <th>word134</th>
+      <th>word135</th>
+      <th>word136</th>
+      <th>word137</th>
+      <th>word138</th>
+      <th>word139</th>
+      <th>word140</th>
+      <th>word141</th>
+      <th>word142</th>
+      <th>word143</th>
+      <th>word144</th>
+      <th>word145</th>
+      <th>word146</th>
+      <th>word147</th>
+      <th>word148</th>
+      <th>word149</th>
+      <th>word150</th>
+      <th>word151</th>
+      <th>word152</th>
+      <th>word153</th>
+      <th>word154</th>
+      <th>word155</th>
+      <th>word156</th>
+      <th>word157</th>
+      <th>word158</th>
+      <th>word159</th>
+      <th>word160</th>
+      <th>word161</th>
+      <th>word162</th>
+      <th>word163</th>
+      <th>word164</th>
+      <th>word165</th>
+      <th>word166</th>
+      <th>word167</th>
+      <th>word168</th>
+      <th>word169</th>
+      <th>word170</th>
+      <th>word171</th>
+      <th>word172</th>
+      <th>word173</th>
+      <th>word174</th>
+      <th>word175</th>
+      <th>word176</th>
+      <th>word177</th>
+      <th>word178</th>
+      <th>word179</th>
+      <th>word180</th>
+      <th>word181</th>
+      <th>word182</th>
+      <th>word183</th>
+      <th>word184</th>
+      <th>word185</th>
+      <th>word186</th>
+      <th>word187</th>
+      <th>word188</th>
+      <th>word189</th>
+      <th>word190</th>
+      <th>word191</th>
+      <th>word192</th>
+      <th>word193</th>
+      <th>word194</th>
+      <th>word195</th>
+      <th>word196</th>
+      <th>word197</th>
+      <th>word198</th>
+      <th>word199</th>
+      <th>word200</th>
+      <th>Mon_bl</th>
+      <th>Tue_bl</th>
+      <th>Wed_bl</th>
+      <th>Thu_bl</th>
+      <th>Fri_bl</th>
+      <th>Sat_bl</th>
+      <th>Sun_bl</th>
+      <th>Mon_post</th>
+      <th>Tue_post</th>
+      <th>Wed_post</th>
+      <th>Thu_post</th>
+      <th>Fri_post</th>
+      <th>Sat_post</th>
+      <th>Sun_post</th>
+      <th>parent_pages</th>
+      <th>min_parent</th>
+      <th>max_parent</th>
+      <th>avg_parent</th>
+      <th>target</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>40.30467</td>
+      <td>53.845657</td>
+      <td>0.0</td>
+      <td>401.0</td>
+      <td>15.0</td>
+      <td>15.52416</td>
+      <td>32.44188</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>3.0</td>
+      <td>14.044226</td>
+      <td>32.615417</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>2.0</td>
+      <td>34.567566</td>
+      <td>48.475178</td>
+      <td>0.0</td>
+      <td>378.0</td>
+      <td>12.0</td>
+      <td>1.479934</td>
+      <td>46.18691</td>
+      <td>-356.0</td>
+      <td>377.0</td>
+      <td>0.0</td>
+      <td>1.076167</td>
+      <td>1.795416</td>
+      <td>0.0</td>
+      <td>11.0</td>
+      <td>0.0</td>
+      <td>0.400491</td>
+      <td>1.078097</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.377559</td>
+      <td>1.07421</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.972973</td>
+      <td>1.704671</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.022932</td>
+      <td>1.521174</td>
+      <td>-8.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>40.30467</td>
+      <td>53.845657</td>
+      <td>0.0</td>
+      <td>401.0</td>
+      <td>15.0</td>
+      <td>15.52416</td>
+      <td>32.44188</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>3.0</td>
+      <td>14.044226</td>
+      <td>32.615417</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>2.0</td>
+      <td>34.567566</td>
+      <td>48.475178</td>
+      <td>0.0</td>
+      <td>378.0</td>
+      <td>12.0</td>
+      <td>1.479934</td>
+      <td>46.18691</td>
+      <td>-356.0</td>
+      <td>377.0</td>
+      <td>0.0</td>
+      <td>1.076167</td>
+      <td>1.795416</td>
+      <td>0.0</td>
+      <td>11.0</td>
+      <td>0.0</td>
+      <td>0.400491</td>
+      <td>1.078097</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.377559</td>
+      <td>1.07421</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.972973</td>
+      <td>1.704671</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.022932</td>
+      <td>1.521174</td>
+      <td>-8.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>6.0</td>
+      <td>2.0</td>
+      <td>4.0</td>
+      <td>5.0</td>
+      <td>-2.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>35.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>40.30467</td>
+      <td>53.845657</td>
+      <td>0.0</td>
+      <td>401.0</td>
+      <td>15.0</td>
+      <td>15.52416</td>
+      <td>32.44188</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>3.0</td>
+      <td>14.044226</td>
+      <td>32.615417</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>2.0</td>
+      <td>34.567566</td>
+      <td>48.475178</td>
+      <td>0.0</td>
+      <td>378.0</td>
+      <td>12.0</td>
+      <td>1.479934</td>
+      <td>46.18691</td>
+      <td>-356.0</td>
+      <td>377.0</td>
+      <td>0.0</td>
+      <td>1.076167</td>
+      <td>1.795416</td>
+      <td>0.0</td>
+      <td>11.0</td>
+      <td>0.0</td>
+      <td>0.400491</td>
+      <td>1.078097</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.377559</td>
+      <td>1.07421</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.972973</td>
+      <td>1.704671</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.022932</td>
+      <td>1.521174</td>
+      <td>-8.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>6.0</td>
+      <td>2.0</td>
+      <td>4.0</td>
+      <td>5.0</td>
+      <td>-2.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>35.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>40.30467</td>
+      <td>53.845657</td>
+      <td>0.0</td>
+      <td>401.0</td>
+      <td>15.0</td>
+      <td>15.52416</td>
+      <td>32.44188</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>3.0</td>
+      <td>14.044226</td>
+      <td>32.615417</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>2.0</td>
+      <td>34.567566</td>
+      <td>48.475178</td>
+      <td>0.0</td>
+      <td>378.0</td>
+      <td>12.0</td>
+      <td>1.479934</td>
+      <td>46.18691</td>
+      <td>-356.0</td>
+      <td>377.0</td>
+      <td>0.0</td>
+      <td>1.076167</td>
+      <td>1.795416</td>
+      <td>0.0</td>
+      <td>11.0</td>
+      <td>0.0</td>
+      <td>0.400491</td>
+      <td>1.078097</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.377559</td>
+      <td>1.07421</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.972973</td>
+      <td>1.704671</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.022932</td>
+      <td>1.521174</td>
+      <td>-8.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>40.30467</td>
+      <td>53.845657</td>
+      <td>0.0</td>
+      <td>401.0</td>
+      <td>15.0</td>
+      <td>15.52416</td>
+      <td>32.44188</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>3.0</td>
+      <td>14.044226</td>
+      <td>32.615417</td>
+      <td>0.0</td>
+      <td>377.0</td>
+      <td>2.0</td>
+      <td>34.567566</td>
+      <td>48.475178</td>
+      <td>0.0</td>
+      <td>378.0</td>
+      <td>12.0</td>
+      <td>1.479934</td>
+      <td>46.18691</td>
+      <td>-356.0</td>
+      <td>377.0</td>
+      <td>0.0</td>
+      <td>1.076167</td>
+      <td>1.795416</td>
+      <td>0.0</td>
+      <td>11.0</td>
+      <td>0.0</td>
+      <td>0.400491</td>
+      <td>1.078097</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.377559</td>
+      <td>1.07421</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>0.972973</td>
+      <td>1.704671</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.022932</td>
+      <td>1.521174</td>
+      <td>-8.0</td>
+      <td>9.0</td>
+      <td>0.0</td>
+      <td>3.0</td>
+      <td>1.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>-1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>34.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>27.0</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+----------
+
+### Data correlation
+
+We start our analysis looking to which attributes have the higher correlation with the price. First, we create a correlation matrix. 
+
+We can see that the varibales that have the stronger postive correlations with the target value are the blog_median_last24h and blog_avg_difference. Besides, we see that the total blog publications, publications in the last 24h and publications between 24h-48h have a strong correlation with each other.
+
+
+```python
+corr_matrix = df_data.corr()
+corr_matrix.loc['target'].sort_values(ascending=False)
+```
+
+
+
+
+    target                       1.000000
+    blog_median_last24h          0.506540
+    blog_avg_difference          0.503375
+    blog_avg_last24h             0.497631
+    blog_median_total            0.491707
+    blog_avg_24-48h              0.490111
+    blog_median_24-48h           0.489674
+    blog_median_first24h         0.486316
+    blog_avg_total               0.485464
+    last24h                      0.472061
+    blog_avg_first24h            0.471999
+    blog_median_last24h_tr       0.461627
+    blog_std_difference          0.440003
+    blog_std_24-48h              0.439152
+    blog_std_last24h             0.433578
+    blog_std_total               0.424616
+    blog_std_first24h            0.384654
+    blog_max_total               0.356604
+    blog_median_total_tr         0.338961
+    blog_avg_24-48h_tr           0.337775
+    blog_avg_last24h_tr          0.335829
+    blog_avg_first24h_tr         0.329670
+    blog_avg_total_tr            0.328525
+    blog_median_first24h_tr      0.323661
+    blog_max_24-48h              0.322775
+    blog_max_last24h             0.322106
+    blog_max_difference          0.320133
+    total                        0.314446
+    first24h                     0.314177
+    blog_max_first24h            0.299688
+    difference                   0.296273
+    blog_std_difference_tr       0.292805
+    blog_std_24-48h_tr           0.285755
+    blog_std_last24h_tr          0.283884
+    blog_std_total_tr            0.266815
+    blog_std_first24h_tr         0.265203
+    last24h_tr                   0.260903
+    blog_max_last24h_tr          0.251493
+    blog_max_24-48h_tr           0.251485
+    blog_max_total_tr            0.247457
+    blog_max_difference_tr       0.245544
+    blog_avg_difference_tr       0.233080
+    blog_max_first24h_tr         0.232089
+    first24h_tr                  0.198638
+    total_tr                     0.191917
+    difference_tr                0.146145
+    24-48h                       0.117642
+    word92                       0.080473
+    24-48h_tr                    0.067141
+    word184                      0.064753
+    word5                        0.064112
+    word96                       0.063923
+    word170                      0.063903
+    word39                       0.061460
+    word7                        0.061238
+    word81                       0.060322
+    word148                      0.058703
+    word186                      0.055606
+    word132                      0.055318
+    word77                       0.054750
+    blog_min_total               0.053221
+    blog_min_first24h            0.053221
+    word164                      0.051995
+    word122                      0.051541
+    word40                       0.050907
+    word151                      0.049974
+    lenght_post                  0.048209
+    word129                      0.045419
+    word63                       0.045107
+    word17                       0.044715
+    word118                      0.043835
+    word89                       0.043425
+    word171                      0.041580
+    word157                      0.040974
+    word133                      0.038016
+    word58                       0.037928
+    word131                      0.035357
+    word97                       0.035195
+    blog_min_last24h             0.034916
+    word140                      0.034695
+    word2                        0.033752
+    word15                       0.033374
+    word159                      0.033300
+    word60                       0.032340
+    word10                       0.031312
+    word145                      0.030371
+    word179                      0.027677
+    word34                       0.027294
+    word135                      0.025934
+    word53                       0.025293
+    word52                       0.025017
+    word168                      0.024109
+    word121                      0.024025
+    word75                       0.023639
+    word165                      0.022007
+    word6                        0.021817
+    word185                      0.021600
+    word74                       0.021484
+    word79                       0.020781
+    word72                       0.019945
+    word134                      0.019839
+    word199                      0.019466
+    word42                       0.018614
+    word109                      0.018127
+    Tue_bl                       0.017965
+    word76                       0.017458
+    word190                      0.017291
+    word172                      0.017250
+    word73                       0.017025
+    word66                       0.016475
+    word144                      0.016079
+    word26                       0.016067
+    word166                      0.015934
+    word101                      0.015695
+    word156                      0.015629
+    word78                       0.015366
+    word146                      0.015329
+    word54                       0.013581
+    word143                      0.013384
+    word195                      0.013151
+    word192                      0.013099
+    word23                       0.012943
+    word154                      0.012197
+    Wed_bl                       0.011630
+    word124                      0.010315
+    word30                       0.010222
+    word119                      0.010158
+    word41                       0.009785
+    word112                      0.009739
+    word27                       0.009347
+    word193                      0.008334
+    word113                      0.008176
+    Fri_post                     0.008056
+    word100                      0.007944
+    word48                       0.007736
+    word127                      0.007250
+    word36                       0.007120
+    word153                      0.007086
+    word147                      0.007064
+    word56                       0.006732
+    word114                      0.006725
+    word57                       0.006716
+    word125                      0.006525
+    word43                       0.006345
+    word130                      0.005843
+    word102                      0.005558
+    word198                      0.005246
+    word91                       0.005214
+    word13                       0.005094
+    word88                       0.004966
+    word64                       0.004865
+    word152                      0.004798
+    word65                       0.004748
+    Tue_post                     0.004695
+    word1                        0.004429
+    word163                      0.004345
+    word46                       0.004174
+    word197                      0.003610
+    word183                      0.003577
+    word55                       0.003400
+    word38                       0.003389
+    word108                      0.003139
+    word71                       0.002858
+    word28                       0.002787
+    word20                       0.002537
+    blog_median_difference_tr    0.002513
+    word98                       0.002406
+    blog_median_24-48h_tr        0.002224
+    word62                       0.002174
+    word59                       0.002005
+    Thu_bl                       0.001922
+    word37                       0.001608
+    word21                       0.001515
+    word196                      0.001495
+    word8                        0.001491
+    word149                      0.001472
+    word51                       0.000949
+    Sat_post                     0.000869
+    word137                      0.000862
+    word175                      0.000618
+    word12                       0.000457
+    word169                      0.000237
+    word120                      0.000228
+    word80                       0.000096
+    word176                     -0.000001
+    word155                     -0.000077
+    word29                      -0.000181
+    word4                       -0.000268
+    Mon_post                    -0.000284
+    word178                     -0.000353
+    word24                      -0.000449
+    word160                     -0.000473
+    word31                      -0.000574
+    word187                     -0.000735
+    word177                     -0.000786
+    word44                      -0.000896
+    word162                     -0.001137
+    blog_min_total_tr           -0.001228
+    blog_min_first24h_tr        -0.001228
+    word194                     -0.001284
+    avg_parent                  -0.001354
+    word115                     -0.001527
+    word70                      -0.001568
+    word68                      -0.001568
+    word181                     -0.001568
+    word32                      -0.001568
+    word174                     -0.001568
+    word3                       -0.001568
+    word188                     -0.001568
+    word150                     -0.001568
+    word14                      -0.001568
+    word128                     -0.001568
+    word117                     -0.001568
+    word110                     -0.001568
+    word107                     -0.001568
+    word11                      -0.001568
+    word87                      -0.001568
+    word136                     -0.001568
+    word138                     -0.001568
+    word104                     -0.001568
+    word18                      -0.001568
+    word19                      -0.001568
+    word99                      -0.001568
+    word94                      -0.001568
+    word35                      -0.001568
+    word123                     -0.001769
+    word61                      -0.001802
+    word67                      -0.001811
+    word33                      -0.001929
+    word22                      -0.001966
+    word49                      -0.001966
+    word182                     -0.001986
+    word103                     -0.001993
+    word161                     -0.002030
+    word93                      -0.002030
+    word47                      -0.002074
+    word106                     -0.002221
+    word25                      -0.002259
+    max_parent                  -0.002362
+    word191                     -0.002369
+    word86                      -0.002408
+    word105                     -0.002411
+    word200                     -0.002411
+    word95                      -0.002447
+    word111                     -0.002469
+    word167                     -0.002660
+    word173                     -0.002725
+    word180                     -0.002754
+    Sun_post                    -0.002905
+    word50                      -0.002985
+    Wed_post                    -0.003085
+    word141                     -0.003541
+    word16                      -0.003553
+    word116                     -0.003677
+    word69                      -0.003723
+    word45                      -0.003724
+    word142                     -0.004113
+    blog_median_difference      -0.004137
+    word85                      -0.004241
+    word82                      -0.004510
+    word139                     -0.004516
+    Mon_bl                      -0.004619
+    word126                     -0.005383
+    word90                      -0.005481
+    word189                     -0.005553
+    parent_pages                -0.005661
+    word84                      -0.005726
+    word9                       -0.005750
+    word83                      -0.006695
+    word158                     -0.006848
+    Sun_bl                      -0.007110
+    Thu_post                    -0.007672
+    Sat_bl                      -0.008288
+    Fri_bl                      -0.009389
+    time_first_post             -0.152908
+    blog_min_difference_tr      -0.230493
+    blog_min_difference         -0.280792
+    blog_min_24-48h                   NaN
+    blog_min_last24h_tr               NaN
+    blog_min_24-48h_tr                NaN
+    min_parent                        NaN
+    Name: target, dtype: float64
+
+
+
+----------
+
+### Creating the Train and Test sets
+
+Creating a test set at the beginning of the project avoid *data snooping* bias, i.e., "when you estimate the generalization error using the test set, your estimate will be too optimistic, and you will launch a system that will not perform as well as expected" (GÉRON, 2019).
+
+In this data set, the test set has already been divided. Therefore, we do not need to create a test set, just separete the target value from the other attributes to create our training set.
+
+
+```python
+blog_X_train = df_data.drop('target',axis=1).copy()
+blog_y_train = df_data['target'].copy()
+```
+
+
+```python
+df_blog = df_data.iloc[:, :50].copy()
+df_comments = df_data.iloc[:, 50:62].copy()
+df_words = df_data.iloc[:, 62:262].copy()
+df_weekday = df_data.iloc[:, 262:276].copy()
+df_parent = df_data.iloc[:, 276:280].copy()
+```
+
+----------
+
+### Preparing the data for ML algorithms
+
+Before creating the ML models, we need to prepare the data so that the ML algorithms will work properly.
+
+First, we need to clean missing values from the dataset. Second, we need to put all the attributes in the same scale because "Machine Learning algorithms don’t perform well when the input numerical attributes have very different scales" [(GÉRON, 2019)](https://www.amazon.com.br/Hands-Machine-Learning-Scikit-Learn-TensorFlow/dp/1492032646).
+
+We verify that there is no missing values in our data set. So, we just prepare a pipeline to do the scaling when necessary.
+
+
+```python
+df_blog.isnull().values.any()
+```
+
+
+
+
+    False
+
+
+
+
+```python
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+def estimator_transf(estimator):
+    #imputer = SimpleImputer(strategy='median')
+    pipeline = Pipeline(steps=[('m', estimator)])
+    return pipeline
+
+def estimator_scaler(estimator):
+    #imputer = SimpleImputer(strategy='median')
+    pipeline = Pipeline(steps=[('scaler',StandardScaler()),('model', estimator)])
+    return pipeline 
+```
+
+----------
+
+## 2. Train ML model
+
+After preparing the data set, we are ready to select and train our ML model.
+
+We start with a Linear Regression (LR) model. "A regression model, such as linear regression, models an output value based on a linear combination of input values" [(BROWNLEE, 2020)](https://machinelearningmastery.com/introduction-to-time-series-forecasting-with-python/).
+
+Then, we try some regularized linear models. This kind of model constrain the weights of the model, avoiding overfitting (GÉRON, 2019). We try three regularized linear models [(BROWNLEE, 2016)](https://machinelearningmastery.com/machine-learning-with-python/):
+
+1. Ridge regression. This model model uses the L2 regularization. It adds “squared magnitude” of coefficient as a penalty term to the loss function [(NAGPAL, 2017)](https://towardsdatascience.com/l1-and-l2-regularization-methods-ce25e7fc831c).
+2. Lasso regression. This model model uses the L1 regularization. It adds “absolute value of magnitude” of coefficient as penalty term to the loss function (NAGPAL, 2017).
+3. Elastic Net. This model combines the Ridge and the Lasso models. "It seeks to minimize the complexity of the regression model (magnitude and number of regression coefficients) by penalizing the model using both the L2-norm (sum squared coefficient values) and the L1-norm (sum absolute coefficient values)" (BROWNLEE, 2016).
+
+Finally, we also try some nonlinear algorithms:
+
+1. Classification and Regression Trees (CART). It uses "the train- ing data to select the best points to split the data in order to minimize a cost metric" (BROWNLEE, 2016).
+2. k-Nearest Neighbors (KNN). This model "locates the k most similar instances in the training dataset for a new data instance" (BROWNLEE, 2016).
+
+The models are evaluated using the mean absolute error (MAE), root square mean error (RMSE), and R². RMSE punish larger errors more than smaller errors, inflating or magnifying the mean error score. This is due to the square of the error value. MAE does not give more or less weight to different types of errors and instead the scores increase linearly with increases in error. MAE is the simplest evaluation metric and most easily interpreted. R² tells you how much variance your model accounts for. In the case of the MAE and RMSE, the lower the better. But for R², the close the value is to 1, the better ([HALE, 2020](https://towardsdatascience.com/which-evaluation-metric-should-you-use-in-machine-learning-regression-problems-20cdaef258e); [BROWNLEE, 2021](https://machinelearningmastery.com/regression-metrics-for-machine-learning/)).
+
+Besides, "the key to a fair comparison of machine learning algorithms is ensuring that each algorithm is evaluated in the same way on the same data. You can achieve this by forcing each algorithm to be evaluated on a consistent test harness" (BROWNLEE, 2016). In this project, we do this by using the same split in the cross validation. We use the KFold function from the sklearn library with a random value rs as the random_state parameter. Although the rs value change everytime the notebook is run, once it is set, the same rs value is used in all the models. This guarantees that all the models are evaluated on the same data.
+
+The result of the tests of the models with the training data shows that **the KNN is the best model**. It has the lowest MAE and RMSE, and the highest R².
+
+However, differing scales of the raw data could be negatively impacting the performance of some of the models. Therefore, we test the models again, but this time we standardize the data set.
+
+We can see that the performance of most models improved with standardization. However, the performance of the KNN degraded with the standardized data. Even so, KNN was still the best method.
+
+**Therefore, for this initial test, we verify that KNN without standardization is the best model for our data**.
+
+However, **using the data set with all the 280 attributes requires a lot of computing time**. So, let's try some featuring selection methods to see if we can reduce the number of attributes to be used in our models.
+
+
+```python
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import cross_validate
+from sklearn.model_selection import KFold
+
+def estimator_cross_val (model,estimator,pipe,matriz,rs,X,y):
+    pipe_ = pipe(estimator)
+    scoring = ['neg_mean_absolute_error', 'neg_root_mean_squared_error','r2']
+    kfold = KFold(n_splits=5, random_state=rs,shuffle=True)
+    scores = cross_validate(pipe_,X,y,cv=kfold,scoring=scoring)
+    
+    mae_scores = -scores.get('test_neg_mean_absolute_error')
+    mae_mean = mae_scores.mean()
+    mae_std = mae_scores.std()
+    
+    rmse_scores = -scores.get('test_neg_root_mean_squared_error')
+    rmse_mean = rmse_scores.mean()
+    rmse_std = rmse_scores.std()
+    
+    r2_scores = scores.get('test_r2')
+    r2_mean = r2_scores.mean()
+    r2_std = r2_scores.std()
+    
+    results_ = [model,mae_mean,mae_std,rmse_mean,rmse_std,r2_mean,r2_std]
+    results_ = pd.Series(results_, index = matriz.columns)
+    results = matriz.append(results_,ignore_index=True)
+    return results
+```
+
+
+```python
+from random import randrange
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+from sklearn.linear_model import Lasso
+from sklearn.linear_model import ElasticNet
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
+import warnings
+
+warnings.filterwarnings("ignore")
+
+rs = randrange(10000)
+matriz = pd.DataFrame(columns=['model','MAE_mean','MAE_std','RMSE_mean','RMSE_std','R2_mean','R2_std'])
+
+matriz = estimator_cross_val('Linear Regression',LinearRegression(),estimator_transf,matriz,rs,blog_X_train,blog_y_train)
+matriz = estimator_cross_val('Ridge Regression',Ridge(),estimator_transf,matriz,rs,blog_X_train,blog_y_train)
+matriz = estimator_cross_val('Lasso',Lasso(),estimator_transf,matriz,rs,blog_X_train,blog_y_train)
+matriz = estimator_cross_val('Elastic Net',ElasticNet(),estimator_transf,matriz,rs,blog_X_train,blog_y_train)
+matriz = estimator_cross_val('KNN',KNeighborsRegressor(),estimator_transf,matriz,rs,blog_X_train,blog_y_train)
+matriz = estimator_cross_val('CART',DecisionTreeRegressor(),estimator_transf,matriz,rs,blog_X_train,blog_y_train)
+matriz
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>model</th>
+      <th>MAE_mean</th>
+      <th>MAE_std</th>
+      <th>RMSE_mean</th>
+      <th>RMSE_std</th>
+      <th>R2_mean</th>
+      <th>R2_std</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>Linear Regression</td>
+      <td>9.544545</td>
+      <td>0.103498</td>
+      <td>30.381871</td>
+      <td>2.102113</td>
+      <td>0.348687</td>
+      <td>0.046967</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>Ridge Regression</td>
+      <td>9.533756</td>
+      <td>0.101103</td>
+      <td>30.373981</td>
+      <td>2.102229</td>
+      <td>0.349013</td>
+      <td>0.047121</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>Lasso</td>
+      <td>9.131463</td>
+      <td>0.096692</td>
+      <td>30.283813</td>
+      <td>2.139727</td>
+      <td>0.352875</td>
+      <td>0.048578</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>Elastic Net</td>
+      <td>9.143876</td>
+      <td>0.094120</td>
+      <td>30.297370</td>
+      <td>2.129937</td>
+      <td>0.352289</td>
+      <td>0.048275</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>KNN</td>
+      <td>6.390140</td>
+      <td>0.188943</td>
+      <td>28.577260</td>
+      <td>1.109094</td>
+      <td>0.421754</td>
+      <td>0.043830</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>CART</td>
+      <td>6.417226</td>
+      <td>0.272852</td>
+      <td>34.032947</td>
+      <td>3.212304</td>
+      <td>0.175991</td>
+      <td>0.143207</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+matriz2 = pd.DataFrame(columns=['model','MAE_mean','MAE_std','RMSE_mean','RMSE_std','R2_mean','R2_std'])
+
+matriz2 = estimator_cross_val('Linear Regression',LinearRegression(),estimator_scaler,matriz2,rs,blog_X_train,blog_y_train)
+matriz2 = estimator_cross_val('Ridge Regression',Ridge(),estimator_scaler,matriz2,rs,blog_X_train,blog_y_train)
+matriz2 = estimator_cross_val('Lasso',Lasso(),estimator_scaler,matriz2,rs,blog_X_train,blog_y_train)
+matriz2 = estimator_cross_val('Elastic Net',ElasticNet(),estimator_scaler,matriz2,rs,blog_X_train,blog_y_train)
+matriz2 = estimator_cross_val('KNN',KNeighborsRegressor(),estimator_scaler,matriz2,rs,blog_X_train,blog_y_train)
+matriz2 = estimator_cross_val('CART',DecisionTreeRegressor(),estimator_scaler,matriz2,rs,blog_X_train,blog_y_train)
+matriz2
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>model</th>
+      <th>MAE_mean</th>
+      <th>MAE_std</th>
+      <th>RMSE_mean</th>
+      <th>RMSE_std</th>
+      <th>R2_mean</th>
+      <th>R2_std</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>Linear Regression</td>
+      <td>9.547968</td>
+      <td>0.103276</td>
+      <td>30.381809</td>
+      <td>2.099744</td>
+      <td>0.348691</td>
+      <td>0.046852</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>Ridge Regression</td>
+      <td>9.539233</td>
+      <td>0.102446</td>
+      <td>30.375292</td>
+      <td>2.099088</td>
+      <td>0.348960</td>
+      <td>0.046955</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>Lasso</td>
+      <td>8.441711</td>
+      <td>0.109987</td>
+      <td>30.462235</td>
+      <td>2.257990</td>
+      <td>0.345548</td>
+      <td>0.049525</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>Elastic Net</td>
+      <td>8.448227</td>
+      <td>0.094508</td>
+      <td>30.637003</td>
+      <td>2.219413</td>
+      <td>0.338140</td>
+      <td>0.046236</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>KNN</td>
+      <td>6.784293</td>
+      <td>0.155734</td>
+      <td>29.294693</td>
+      <td>2.056182</td>
+      <td>0.394841</td>
+      <td>0.039818</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>CART</td>
+      <td>6.366500</td>
+      <td>0.264876</td>
+      <td>34.032960</td>
+      <td>2.777628</td>
+      <td>0.177901</td>
+      <td>0.118054</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+-----
+
+### Feature selection
+
+"Feature selection is the process of reducing the number of input variables when developing a predictive model. It is desirable to reduce the number of input variables to both reduce the computational cost of modeling and, in many cases, to improve the performance of the model" (BROWNLEE, 2021).
+
+There are two main techniques of feature selection: supervised and unsupervised. Supervised methods use the target variable, while unsupervised methods do not (BROWNLEE, 2021).
+
+Besides, the supervised techniques can be divided in (BROWNLEE, 2021):
+
+1. Intrinsic: Algorithms that perform automatic feature selection during training.
+2. Wrapper: Search subsets of features that perform according to a predictive model.
+3. Filter: Select subsets of features based on their relationship with the target.
+
+### Mutual Information Statistics
+
+Some of the methods of feature selection are more appropriated for numerical variables and others for categorical ones. One popular feature selection techniques used for both numerical variables and categorical variable is Mutual Information Statistics (BROWNLEE, 2021). 
+
+"Mutual information from the field of information theory is the application of information gain (typically used in the construction of decision trees) to feature selection. Mutual information is calculated between two variables and measures the reduction in uncertainty for one variable given a known value of the other variable"  (BROWNLEE, 2021).
+
+We find that many attributes have negligible information value. 181 features have a contribution score over 0.0001, 144 over 0.001, 65 over 0.01, and only 33 over 0.1. **These numbers can vary depending on the training set**. Therefore, we will test the 30, 70, 150, and 190 best features and compare it with the results obtained using all features. 
+
+**We see that the performance using the 70, 150, and 190 best features are almost the same of using all features. Using the 30 beast features is just slighlty worst than using all features**. Moreover, in all cases the KNN model have the best performance.
+
+We could do a grid search to "systematically test a range of different numbers of selected features and discover which results in the best performing model" (BROWNLEE, 2021). **However, a grid search to determine the optimum number of features would require a lot of computing time and the benefit would not be significant in our evaluation**.
+
+
+```python
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import mutual_info_classif
+
+# feature selection
+def select_features(X_train, y_train,k_):
+    # configure to select all features
+    fs = SelectKBest(score_func=mutual_info_classif, k=k_) 
+    # learn relationship from training data
+    fs.fit(X_train, y_train)
+    # transform train input data
+    X_train_fs = fs.transform(X_train)
+    return X_train_fs, fs
+```
+
+
+```python
+# feature selection
+blog_X_train_mi, mi = select_features(blog_X_train, blog_y_train,'all')
+
+# what are scores for the features
+MI = pd.DataFrame(mi.scores_, columns = ['Score'])
+MI.sort_values(by=['Score'],ascending=False)
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>Score</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>51</th>
+      <td>0.275880</td>
+    </tr>
+    <tr>
+      <th>54</th>
+      <td>0.237840</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>0.209719</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>0.208136</td>
+    </tr>
+    <tr>
+      <th>0</th>
+      <td>0.207897</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>0.207496</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>0.206831</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>0.203635</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>0.202529</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>0.202373</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>0.200722</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>0.194932</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>0.191542</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>0.190217</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>0.188195</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>0.186027</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>0.184062</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>0.183795</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>0.178890</td>
+    </tr>
+    <tr>
+      <th>50</th>
+      <td>0.174909</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>0.173680</td>
+    </tr>
+    <tr>
+      <th>53</th>
+      <td>0.170095</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>0.168995</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>0.135486</td>
+    </tr>
+    <tr>
+      <th>31</th>
+      <td>0.119140</td>
+    </tr>
+    <tr>
+      <th>26</th>
+      <td>0.118753</td>
+    </tr>
+    <tr>
+      <th>25</th>
+      <td>0.115724</td>
+    </tr>
+    <tr>
+      <th>46</th>
+      <td>0.114905</td>
+    </tr>
+    <tr>
+      <th>36</th>
+      <td>0.114312</td>
+    </tr>
+    <tr>
+      <th>35</th>
+      <td>0.112838</td>
+    </tr>
+    <tr>
+      <th>41</th>
+      <td>0.108989</td>
+    </tr>
+    <tr>
+      <th>30</th>
+      <td>0.107790</td>
+    </tr>
+    <tr>
+      <th>40</th>
+      <td>0.104771</td>
+    </tr>
+    <tr>
+      <th>45</th>
+      <td>0.076726</td>
+    </tr>
+    <tr>
+      <th>61</th>
+      <td>0.073060</td>
+    </tr>
+    <tr>
+      <th>245</th>
+      <td>0.068306</td>
+    </tr>
+    <tr>
+      <th>142</th>
+      <td>0.065440</td>
+    </tr>
+    <tr>
+      <th>100</th>
+      <td>0.064659</td>
+    </tr>
+    <tr>
+      <th>48</th>
+      <td>0.064550</td>
+    </tr>
+    <tr>
+      <th>60</th>
+      <td>0.063339</td>
+    </tr>
+    <tr>
+      <th>43</th>
+      <td>0.058855</td>
+    </tr>
+    <tr>
+      <th>28</th>
+      <td>0.058288</td>
+    </tr>
+    <tr>
+      <th>24</th>
+      <td>0.058171</td>
+    </tr>
+    <tr>
+      <th>52</th>
+      <td>0.056459</td>
+    </tr>
+    <tr>
+      <th>33</th>
+      <td>0.054157</td>
+    </tr>
+    <tr>
+      <th>38</th>
+      <td>0.050571</td>
+    </tr>
+    <tr>
+      <th>47</th>
+      <td>0.050074</td>
+    </tr>
+    <tr>
+      <th>212</th>
+      <td>0.039152</td>
+    </tr>
+    <tr>
+      <th>231</th>
+      <td>0.030719</td>
+    </tr>
+    <tr>
+      <th>66</th>
+      <td>0.030007</td>
+    </tr>
+    <tr>
+      <th>157</th>
+      <td>0.029748</td>
+    </tr>
+    <tr>
+      <th>29</th>
+      <td>0.028234</td>
+    </tr>
+    <tr>
+      <th>56</th>
+      <td>0.025834</td>
+    </tr>
+    <tr>
+      <th>225</th>
+      <td>0.024111</td>
+    </tr>
+    <tr>
+      <th>44</th>
+      <td>0.022696</td>
+    </tr>
+    <tr>
+      <th>34</th>
+      <td>0.020177</td>
+    </tr>
+    <tr>
+      <th>138</th>
+      <td>0.018655</td>
+    </tr>
+    <tr>
+      <th>68</th>
+      <td>0.018598</td>
+    </tr>
+    <tr>
+      <th>59</th>
+      <td>0.017393</td>
+    </tr>
+    <tr>
+      <th>209</th>
+      <td>0.017102</td>
+    </tr>
+    <tr>
+      <th>71</th>
+      <td>0.015419</td>
+    </tr>
+    <tr>
+      <th>55</th>
+      <td>0.015041</td>
+    </tr>
+    <tr>
+      <th>78</th>
+      <td>0.012075</td>
+    </tr>
+    <tr>
+      <th>58</th>
+      <td>0.012028</td>
+    </tr>
+    <tr>
+      <th>113</th>
+      <td>0.010003</td>
+    </tr>
+    <tr>
+      <th>247</th>
+      <td>0.009429</td>
+    </tr>
+    <tr>
+      <th>232</th>
+      <td>0.008656</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>0.008284</td>
+    </tr>
+    <tr>
+      <th>150</th>
+      <td>0.008241</td>
+    </tr>
+    <tr>
+      <th>127</th>
+      <td>0.008227</td>
+    </tr>
+    <tr>
+      <th>103</th>
+      <td>0.008166</td>
+    </tr>
+    <tr>
+      <th>63</th>
+      <td>0.007725</td>
+    </tr>
+    <tr>
+      <th>121</th>
+      <td>0.007161</td>
+    </tr>
+    <tr>
+      <th>67</th>
+      <td>0.007090</td>
+    </tr>
+    <tr>
+      <th>193</th>
+      <td>0.006739</td>
+    </tr>
+    <tr>
+      <th>201</th>
+      <td>0.006684</td>
+    </tr>
+    <tr>
+      <th>119</th>
+      <td>0.006538</td>
+    </tr>
+    <tr>
+      <th>190</th>
+      <td>0.005337</td>
+    </tr>
+    <tr>
+      <th>95</th>
+      <td>0.005262</td>
+    </tr>
+    <tr>
+      <th>87</th>
+      <td>0.005123</td>
+    </tr>
+    <tr>
+      <th>217</th>
+      <td>0.005095</td>
+    </tr>
+    <tr>
+      <th>246</th>
+      <td>0.005080</td>
+    </tr>
+    <tr>
+      <th>182</th>
+      <td>0.004222</td>
+    </tr>
+    <tr>
+      <th>233</th>
+      <td>0.004177</td>
+    </tr>
+    <tr>
+      <th>82</th>
+      <td>0.004174</td>
+    </tr>
+    <tr>
+      <th>76</th>
+      <td>0.004020</td>
+    </tr>
+    <tr>
+      <th>199</th>
+      <td>0.003978</td>
+    </tr>
+    <tr>
+      <th>203</th>
+      <td>0.003943</td>
+    </tr>
+    <tr>
+      <th>265</th>
+      <td>0.003709</td>
+    </tr>
+    <tr>
+      <th>102</th>
+      <td>0.003610</td>
+    </tr>
+    <tr>
+      <th>81</th>
+      <td>0.003481</td>
+    </tr>
+    <tr>
+      <th>172</th>
+      <td>0.003452</td>
+    </tr>
+    <tr>
+      <th>98</th>
+      <td>0.003340</td>
+    </tr>
+    <tr>
+      <th>183</th>
+      <td>0.003334</td>
+    </tr>
+    <tr>
+      <th>222</th>
+      <td>0.003280</td>
+    </tr>
+    <tr>
+      <th>187</th>
+      <td>0.003264</td>
+    </tr>
+    <tr>
+      <th>42</th>
+      <td>0.003231</td>
+    </tr>
+    <tr>
+      <th>241</th>
+      <td>0.003169</td>
+    </tr>
+    <tr>
+      <th>93</th>
+      <td>0.003117</td>
+    </tr>
+    <tr>
+      <th>270</th>
+      <td>0.003099</td>
+    </tr>
+    <tr>
+      <th>131</th>
+      <td>0.003050</td>
+    </tr>
+    <tr>
+      <th>122</th>
+      <td>0.003002</td>
+    </tr>
+    <tr>
+      <th>254</th>
+      <td>0.002906</td>
+    </tr>
+    <tr>
+      <th>269</th>
+      <td>0.002892</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>0.002869</td>
+    </tr>
+    <tr>
+      <th>206</th>
+      <td>0.002739</td>
+    </tr>
+    <tr>
+      <th>80</th>
+      <td>0.002711</td>
+    </tr>
+    <tr>
+      <th>144</th>
+      <td>0.002444</td>
+    </tr>
+    <tr>
+      <th>118</th>
+      <td>0.002391</td>
+    </tr>
+    <tr>
+      <th>271</th>
+      <td>0.002224</td>
+    </tr>
+    <tr>
+      <th>267</th>
+      <td>0.002220</td>
+    </tr>
+    <tr>
+      <th>74</th>
+      <td>0.002188</td>
+    </tr>
+    <tr>
+      <th>218</th>
+      <td>0.002179</td>
+    </tr>
+    <tr>
+      <th>192</th>
+      <td>0.002174</td>
+    </tr>
+    <tr>
+      <th>132</th>
+      <td>0.002167</td>
+    </tr>
+    <tr>
+      <th>137</th>
+      <td>0.002078</td>
+    </tr>
+    <tr>
+      <th>260</th>
+      <td>0.002067</td>
+    </tr>
+    <tr>
+      <th>116</th>
+      <td>0.002047</td>
+    </tr>
+    <tr>
+      <th>133</th>
+      <td>0.001990</td>
+    </tr>
+    <tr>
+      <th>250</th>
+      <td>0.001936</td>
+    </tr>
+    <tr>
+      <th>166</th>
+      <td>0.001913</td>
+    </tr>
+    <tr>
+      <th>79</th>
+      <td>0.001901</td>
+    </tr>
+    <tr>
+      <th>149</th>
+      <td>0.001864</td>
+    </tr>
+    <tr>
+      <th>197</th>
+      <td>0.001798</td>
+    </tr>
+    <tr>
+      <th>97</th>
+      <td>0.001750</td>
+    </tr>
+    <tr>
+      <th>196</th>
+      <td>0.001731</td>
+    </tr>
+    <tr>
+      <th>162</th>
+      <td>0.001703</td>
+    </tr>
+    <tr>
+      <th>92</th>
+      <td>0.001695</td>
+    </tr>
+    <tr>
+      <th>174</th>
+      <td>0.001625</td>
+    </tr>
+    <tr>
+      <th>85</th>
+      <td>0.001555</td>
+    </tr>
+    <tr>
+      <th>239</th>
+      <td>0.001504</td>
+    </tr>
+    <tr>
+      <th>189</th>
+      <td>0.001477</td>
+    </tr>
+    <tr>
+      <th>177</th>
+      <td>0.001435</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>0.001363</td>
+    </tr>
+    <tr>
+      <th>169</th>
+      <td>0.001286</td>
+    </tr>
+    <tr>
+      <th>49</th>
+      <td>0.001281</td>
+    </tr>
+    <tr>
+      <th>91</th>
+      <td>0.001257</td>
+    </tr>
+    <tr>
+      <th>264</th>
+      <td>0.001187</td>
+    </tr>
+    <tr>
+      <th>276</th>
+      <td>0.001180</td>
+    </tr>
+    <tr>
+      <th>39</th>
+      <td>0.001178</td>
+    </tr>
+    <tr>
+      <th>159</th>
+      <td>0.001165</td>
+    </tr>
+    <tr>
+      <th>184</th>
+      <td>0.001161</td>
+    </tr>
+    <tr>
+      <th>130</th>
+      <td>0.001088</td>
+    </tr>
+    <tr>
+      <th>191</th>
+      <td>0.001015</td>
+    </tr>
+    <tr>
+      <th>213</th>
+      <td>0.000970</td>
+    </tr>
+    <tr>
+      <th>173</th>
+      <td>0.000967</td>
+    </tr>
+    <tr>
+      <th>272</th>
+      <td>0.000894</td>
+    </tr>
+    <tr>
+      <th>186</th>
+      <td>0.000875</td>
+    </tr>
+    <tr>
+      <th>120</th>
+      <td>0.000872</td>
+    </tr>
+    <tr>
+      <th>216</th>
+      <td>0.000865</td>
+    </tr>
+    <tr>
+      <th>236</th>
+      <td>0.000846</td>
+    </tr>
+    <tr>
+      <th>238</th>
+      <td>0.000800</td>
+    </tr>
+    <tr>
+      <th>185</th>
+      <td>0.000799</td>
+    </tr>
+    <tr>
+      <th>202</th>
+      <td>0.000788</td>
+    </tr>
+    <tr>
+      <th>141</th>
+      <td>0.000782</td>
+    </tr>
+    <tr>
+      <th>256</th>
+      <td>0.000717</td>
+    </tr>
+    <tr>
+      <th>96</th>
+      <td>0.000699</td>
+    </tr>
+    <tr>
+      <th>200</th>
+      <td>0.000693</td>
+    </tr>
+    <tr>
+      <th>198</th>
+      <td>0.000623</td>
+    </tr>
+    <tr>
+      <th>32</th>
+      <td>0.000616</td>
+    </tr>
+    <tr>
+      <th>107</th>
+      <td>0.000606</td>
+    </tr>
+    <tr>
+      <th>145</th>
+      <td>0.000592</td>
+    </tr>
+    <tr>
+      <th>140</th>
+      <td>0.000591</td>
+    </tr>
+    <tr>
+      <th>112</th>
+      <td>0.000542</td>
+    </tr>
+    <tr>
+      <th>208</th>
+      <td>0.000538</td>
+    </tr>
+    <tr>
+      <th>273</th>
+      <td>0.000501</td>
+    </tr>
+    <tr>
+      <th>240</th>
+      <td>0.000478</td>
+    </tr>
+    <tr>
+      <th>143</th>
+      <td>0.000476</td>
+    </tr>
+    <tr>
+      <th>126</th>
+      <td>0.000475</td>
+    </tr>
+    <tr>
+      <th>129</th>
+      <td>0.000462</td>
+    </tr>
+    <tr>
+      <th>210</th>
+      <td>0.000364</td>
+    </tr>
+    <tr>
+      <th>237</th>
+      <td>0.000287</td>
+    </tr>
+    <tr>
+      <th>179</th>
+      <td>0.000266</td>
+    </tr>
+    <tr>
+      <th>139</th>
+      <td>0.000240</td>
+    </tr>
+    <tr>
+      <th>278</th>
+      <td>0.000234</td>
+    </tr>
+    <tr>
+      <th>153</th>
+      <td>0.000229</td>
+    </tr>
+    <tr>
+      <th>72</th>
+      <td>0.000219</td>
+    </tr>
+    <tr>
+      <th>228</th>
+      <td>0.000212</td>
+    </tr>
+    <tr>
+      <th>230</th>
+      <td>0.000196</td>
+    </tr>
+    <tr>
+      <th>171</th>
+      <td>0.000155</td>
+    </tr>
+    <tr>
+      <th>252</th>
+      <td>0.000110</td>
+    </tr>
+    <tr>
+      <th>257</th>
+      <td>0.000090</td>
+    </tr>
+    <tr>
+      <th>147</th>
+      <td>0.000044</td>
+    </tr>
+    <tr>
+      <th>234</th>
+      <td>0.000024</td>
+    </tr>
+    <tr>
+      <th>215</th>
+      <td>0.000021</td>
+    </tr>
+    <tr>
+      <th>83</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>84</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>244</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>77</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>163</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>243</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>242</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>249</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>86</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>88</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>89</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>90</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>235</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>94</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>99</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>101</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>248</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>73</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>75</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>251</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>277</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>275</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>274</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>27</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>37</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>57</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>62</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>268</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>64</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>266</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>65</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>69</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>263</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>262</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>261</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>70</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>259</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>258</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>255</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>253</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>229</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>221</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>227</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>226</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>134</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>135</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>136</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>188</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>146</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>148</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>151</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>152</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>181</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>180</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>178</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>154</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>176</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>175</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>155</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>156</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>158</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>170</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>160</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>168</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>167</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>161</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>165</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>194</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>195</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>128</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>214</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>104</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>224</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>223</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>105</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>164</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>220</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>219</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>106</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>108</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>109</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>110</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>125</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>111</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>211</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>207</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>114</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>205</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>204</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>115</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>117</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>123</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>124</th>
+      <td>0.000000</td>
+    </tr>
+    <tr>
+      <th>279</th>
+      <td>0.000000</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+print(MI[MI > 0.0001].count())
+print(MI[MI > 0.001].count())
+print(MI[MI > 0.01].count())
+print(MI[MI > 0.1].count())
+```
+
+    Score    181
+    dtype: int64
+    Score    144
+    dtype: int64
+    Score    65
+    dtype: int64
+    Score    33
+    dtype: int64
+
+
+
+```python
+def estimator_cross_val_fea (k,model,estimator,pipe,matriz,rs,X,y):
+    pipe_ = pipe(estimator)
+    scoring = ['neg_mean_absolute_error', 'neg_root_mean_squared_error','r2']
+    kfold = KFold(n_splits=5, random_state=rs,shuffle=True)
+    scores = cross_validate(pipe_,X,y,cv=kfold,scoring=scoring)
+    
+    mae_scores = -scores.get('test_neg_mean_absolute_error')
+    mae_mean = mae_scores.mean()
+    mae_std = mae_scores.std()
+    
+    rmse_scores = -scores.get('test_neg_root_mean_squared_error')
+    rmse_mean = rmse_scores.mean()
+    rmse_std = rmse_scores.std()
+    
+    r2_scores = scores.get('test_r2')
+    r2_mean = r2_scores.mean()
+    r2_std = r2_scores.std()
+    
+    results_ = [k,model,mae_mean,mae_std,rmse_mean,rmse_std,r2_mean,r2_std]
+    results_ = pd.Series(results_, index = matriz.columns)
+    results = matriz.append(results_,ignore_index=True)
+    return results
+
+matriz_mi = pd.DataFrame(columns=['features','model','MAE_mean','MAE_std','RMSE_mean','RMSE_std','R2_mean','R2_std'])
+
+for k in [30,70,150,190]:
+
+    best_features_mi = MI.transpose()
+    best_features_mi.columns = blog_X_train.columns
+    best_features_mi.sort_values('Score',axis=1,ascending=False,inplace=True)
+    best_features_mi.drop(best_features_mi.iloc[:,k:],axis=1,inplace=True)
+    blog_X_train_mi = blog_X_train[best_features_mi.columns]
+  
+    matriz_mi = estimator_cross_val_fea(k,'Linear Regression',LinearRegression(),     estimator_transf,matriz_mi,rs,blog_X_train_mi,blog_y_train)
+    matriz_mi = estimator_cross_val_fea(k,'Ridge Regression', Ridge(),                estimator_transf,matriz_mi,rs,blog_X_train_mi,blog_y_train)
+    matriz_mi = estimator_cross_val_fea(k,'Lasso',            Lasso(),                estimator_transf,matriz_mi,rs,blog_X_train_mi,blog_y_train)
+    matriz_mi = estimator_cross_val_fea(k,'Elastic Net',      ElasticNet(),           estimator_transf,matriz_mi,rs,blog_X_train_mi,blog_y_train)
+    matriz_mi = estimator_cross_val_fea(k,'KNN',              KNeighborsRegressor(),  estimator_transf,matriz_mi,rs,blog_X_train_mi,blog_y_train)
+    matriz_mi = estimator_cross_val_fea(k,'CART',             DecisionTreeRegressor(),estimator_transf,matriz_mi,rs,blog_X_train_mi,blog_y_train)
+
+matriz_mi
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>features</th>
+      <th>model</th>
+      <th>MAE_mean</th>
+      <th>MAE_std</th>
+      <th>RMSE_mean</th>
+      <th>RMSE_std</th>
+      <th>R2_mean</th>
+      <th>R2_std</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>30</td>
+      <td>Linear Regression</td>
+      <td>8.102044</td>
+      <td>0.070500</td>
+      <td>30.460122</td>
+      <td>2.164337</td>
+      <td>0.345266</td>
+      <td>0.050290</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>30</td>
+      <td>Ridge Regression</td>
+      <td>8.098280</td>
+      <td>0.073934</td>
+      <td>30.453557</td>
+      <td>2.162956</td>
+      <td>0.345538</td>
+      <td>0.050354</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>30</td>
+      <td>Lasso</td>
+      <td>8.102536</td>
+      <td>0.087173</td>
+      <td>30.402198</td>
+      <td>2.179639</td>
+      <td>0.347780</td>
+      <td>0.050551</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>30</td>
+      <td>Elastic Net</td>
+      <td>8.111061</td>
+      <td>0.087429</td>
+      <td>30.411269</td>
+      <td>2.179164</td>
+      <td>0.347399</td>
+      <td>0.050441</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>30</td>
+      <td>KNN</td>
+      <td>6.416703</td>
+      <td>0.230324</td>
+      <td>28.668569</td>
+      <td>0.863457</td>
+      <td>0.417630</td>
+      <td>0.044628</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>30</td>
+      <td>CART</td>
+      <td>7.111597</td>
+      <td>0.445084</td>
+      <td>35.918582</td>
+      <td>3.811208</td>
+      <td>0.082226</td>
+      <td>0.171896</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>70</td>
+      <td>Linear Regression</td>
+      <td>9.261467</td>
+      <td>0.091643</td>
+      <td>30.344233</td>
+      <td>2.128451</td>
+      <td>0.350294</td>
+      <td>0.048114</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>70</td>
+      <td>Ridge Regression</td>
+      <td>9.257935</td>
+      <td>0.088683</td>
+      <td>30.340661</td>
+      <td>2.127563</td>
+      <td>0.350440</td>
+      <td>0.048170</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>70</td>
+      <td>Lasso</td>
+      <td>9.127167</td>
+      <td>0.096721</td>
+      <td>30.287729</td>
+      <td>2.135822</td>
+      <td>0.352686</td>
+      <td>0.048690</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>70</td>
+      <td>Elastic Net</td>
+      <td>9.148627</td>
+      <td>0.091839</td>
+      <td>30.304993</td>
+      <td>2.126502</td>
+      <td>0.351940</td>
+      <td>0.048425</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>70</td>
+      <td>KNN</td>
+      <td>6.405011</td>
+      <td>0.194332</td>
+      <td>28.583471</td>
+      <td>1.106401</td>
+      <td>0.421494</td>
+      <td>0.043878</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>70</td>
+      <td>CART</td>
+      <td>6.451796</td>
+      <td>0.220880</td>
+      <td>33.634105</td>
+      <td>2.733972</td>
+      <td>0.195243</td>
+      <td>0.126025</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>150</td>
+      <td>Linear Regression</td>
+      <td>9.382456</td>
+      <td>0.094181</td>
+      <td>30.351116</td>
+      <td>2.130122</td>
+      <td>0.349996</td>
+      <td>0.048221</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>150</td>
+      <td>Ridge Regression</td>
+      <td>9.378137</td>
+      <td>0.092659</td>
+      <td>30.347295</td>
+      <td>2.128722</td>
+      <td>0.350154</td>
+      <td>0.048236</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>150</td>
+      <td>Lasso</td>
+      <td>9.127167</td>
+      <td>0.096721</td>
+      <td>30.287729</td>
+      <td>2.135822</td>
+      <td>0.352686</td>
+      <td>0.048690</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>150</td>
+      <td>Elastic Net</td>
+      <td>9.148563</td>
+      <td>0.091806</td>
+      <td>30.305229</td>
+      <td>2.126215</td>
+      <td>0.351930</td>
+      <td>0.048413</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>150</td>
+      <td>KNN</td>
+      <td>6.395976</td>
+      <td>0.193652</td>
+      <td>28.579396</td>
+      <td>1.103361</td>
+      <td>0.421668</td>
+      <td>0.043698</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>150</td>
+      <td>CART</td>
+      <td>6.449221</td>
+      <td>0.291889</td>
+      <td>34.058084</td>
+      <td>3.144257</td>
+      <td>0.175378</td>
+      <td>0.137336</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>190</td>
+      <td>Linear Regression</td>
+      <td>9.438096</td>
+      <td>0.095297</td>
+      <td>30.359550</td>
+      <td>2.123977</td>
+      <td>0.349629</td>
+      <td>0.048041</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>190</td>
+      <td>Ridge Regression</td>
+      <td>9.431912</td>
+      <td>0.093154</td>
+      <td>30.355105</td>
+      <td>2.122739</td>
+      <td>0.349813</td>
+      <td>0.048077</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>190</td>
+      <td>Lasso</td>
+      <td>9.127223</td>
+      <td>0.096909</td>
+      <td>30.287813</td>
+      <td>2.135734</td>
+      <td>0.352683</td>
+      <td>0.048687</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>190</td>
+      <td>Elastic Net</td>
+      <td>9.148673</td>
+      <td>0.091982</td>
+      <td>30.305372</td>
+      <td>2.126077</td>
+      <td>0.351924</td>
+      <td>0.048409</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>190</td>
+      <td>KNN</td>
+      <td>6.385101</td>
+      <td>0.183604</td>
+      <td>28.571782</td>
+      <td>1.106768</td>
+      <td>0.421986</td>
+      <td>0.043620</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>190</td>
+      <td>CART</td>
+      <td>6.571310</td>
+      <td>0.220003</td>
+      <td>35.346713</td>
+      <td>2.761287</td>
+      <td>0.114920</td>
+      <td>0.111548</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+### Wrapper feature selection method
+
+One way to handle data sets that combines numerical and categorical variables is to use a wrapper method. Some ofent used wrapper methods are Tree-Searching Methods, Stochastic Global Search, Step-Wise Models, and Recursive Feature Elimination (BROWNLEE, 2021).
+
+We use the **Recursive Feature Elimination (RFE) method**. This method searches "for a subset of features by starting with all features in the training dataset and successfully removing features until the desired number remains. This is achieved by fitting the given machine learning algorithm used in the core of the model, ranking features by importance, discarding the least important features, and re-fitting the model" (BROWNLEE, 2021).
+
+We use the RFE to reduce the attributes of the data set. We use the same number of features as in the Mutual information selection method. Thus, we select the 190, 150, 70, and 30 most relevant features and evaluate the models again. 
+
+**We can see that the best model is the KNN with 30 features**. Moreover, the models performed better with the features selected using the RFE than with the ones selected using the mutual information. This model even performed better than the one using all features.
+
+
+```python
+from sklearn.feature_selection import RFE
+from sklearn.tree import DecisionTreeRegressor
+
+matriz_rfe = pd.DataFrame(columns=['features','model','MAE_mean','MAE_std','RMSE_mean','RMSE_std','R2_mean','R2_std'])
+rfe_features = pd.DataFrame()
+
+for k in [30,70,150,190]:
+    rfe = RFE(estimator=DecisionTreeRegressor(), n_features_to_select=k)
+    rfe.fit(blog_X_train,blog_y_train)
+    RF = pd.DataFrame(rfe.support_, columns = ['{} Features'.format(k)])
+    rfe_features['{} Features'.format(k)] = RF['{} Features'.format(k)]
+    
+    best_features_rfe = RF.transpose()
+    best_features_rfe.columns = blog_X_train.columns
+    best_features_rfe.sort_values('{} Features'.format(k),axis=1,ascending=False,inplace=True)
+    best_features_rfe.drop(best_features_rfe.iloc[:,k:],axis=1,inplace=True)
+    blog_X_train_rfe = blog_X_train[best_features_rfe.columns]
+    blog_X_train_rfe.head()
+  
+    matriz_rfe = estimator_cross_val_fea(k,'Linear Regression',LinearRegression(),     estimator_transf,matriz_rfe,rs,blog_X_train_rfe,blog_y_train)
+    matriz_rfe = estimator_cross_val_fea(k,'Ridge Regression', Ridge(),                estimator_transf,matriz_rfe,rs,blog_X_train_rfe,blog_y_train)
+    matriz_rfe = estimator_cross_val_fea(k,'Lasso',            Lasso(),                estimator_transf,matriz_rfe,rs,blog_X_train_rfe,blog_y_train)
+    matriz_rfe = estimator_cross_val_fea(k,'Elastic Net',      ElasticNet(),           estimator_transf,matriz_rfe,rs,blog_X_train_rfe,blog_y_train)
+    matriz_rfe = estimator_cross_val_fea(k,'KNN',              KNeighborsRegressor(),  estimator_transf,matriz_rfe,rs,blog_X_train_rfe,blog_y_train)
+    matriz_rfe = estimator_cross_val_fea(k,'CART',             DecisionTreeRegressor(),estimator_transf,matriz_rfe,rs,blog_X_train_rfe,blog_y_train)
+
+matriz_rfe
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>features</th>
+      <th>model</th>
+      <th>MAE_mean</th>
+      <th>MAE_std</th>
+      <th>RMSE_mean</th>
+      <th>RMSE_std</th>
+      <th>R2_mean</th>
+      <th>R2_std</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>30</td>
+      <td>Linear Regression</td>
+      <td>9.180081</td>
+      <td>0.104516</td>
+      <td>30.279467</td>
+      <td>2.203382</td>
+      <td>0.353323</td>
+      <td>0.047883</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>30</td>
+      <td>Ridge Regression</td>
+      <td>9.180040</td>
+      <td>0.104518</td>
+      <td>30.279461</td>
+      <td>2.203382</td>
+      <td>0.353324</td>
+      <td>0.047883</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>30</td>
+      <td>Lasso</td>
+      <td>9.092673</td>
+      <td>0.101425</td>
+      <td>30.280741</td>
+      <td>2.212499</td>
+      <td>0.353230</td>
+      <td>0.048760</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>30</td>
+      <td>Elastic Net</td>
+      <td>9.122076</td>
+      <td>0.101398</td>
+      <td>30.286636</td>
+      <td>2.211027</td>
+      <td>0.352968</td>
+      <td>0.048825</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>30</td>
+      <td>KNN</td>
+      <td>6.374234</td>
+      <td>0.180121</td>
+      <td>28.476245</td>
+      <td>1.238052</td>
+      <td>0.426645</td>
+      <td>0.034890</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>30</td>
+      <td>CART</td>
+      <td>6.232891</td>
+      <td>0.443807</td>
+      <td>33.024775</td>
+      <td>3.559776</td>
+      <td>0.225693</td>
+      <td>0.140368</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>70</td>
+      <td>Linear Regression</td>
+      <td>9.306786</td>
+      <td>0.082999</td>
+      <td>30.294309</td>
+      <td>2.150059</td>
+      <td>0.352496</td>
+      <td>0.048134</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>70</td>
+      <td>Ridge Regression</td>
+      <td>9.306366</td>
+      <td>0.083161</td>
+      <td>30.293986</td>
+      <td>2.150332</td>
+      <td>0.352510</td>
+      <td>0.048142</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>70</td>
+      <td>Lasso</td>
+      <td>9.111878</td>
+      <td>0.111197</td>
+      <td>30.249388</td>
+      <td>2.163756</td>
+      <td>0.354344</td>
+      <td>0.049547</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>70</td>
+      <td>Elastic Net</td>
+      <td>9.128702</td>
+      <td>0.111946</td>
+      <td>30.257852</td>
+      <td>2.165584</td>
+      <td>0.354014</td>
+      <td>0.049239</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>70</td>
+      <td>KNN</td>
+      <td>6.365024</td>
+      <td>0.182862</td>
+      <td>28.642718</td>
+      <td>1.190666</td>
+      <td>0.419439</td>
+      <td>0.041009</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>70</td>
+      <td>CART</td>
+      <td>6.266452</td>
+      <td>0.332824</td>
+      <td>33.588791</td>
+      <td>2.617158</td>
+      <td>0.198748</td>
+      <td>0.115628</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>150</td>
+      <td>Linear Regression</td>
+      <td>9.447957</td>
+      <td>0.068327</td>
+      <td>30.366726</td>
+      <td>2.122330</td>
+      <td>0.349323</td>
+      <td>0.047963</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>150</td>
+      <td>Ridge Regression</td>
+      <td>9.439724</td>
+      <td>0.064408</td>
+      <td>30.363983</td>
+      <td>2.122545</td>
+      <td>0.349429</td>
+      <td>0.048119</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>150</td>
+      <td>Lasso</td>
+      <td>9.126103</td>
+      <td>0.099535</td>
+      <td>30.287416</td>
+      <td>2.131768</td>
+      <td>0.352719</td>
+      <td>0.048275</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>150</td>
+      <td>Elastic Net</td>
+      <td>9.145160</td>
+      <td>0.097843</td>
+      <td>30.300500</td>
+      <td>2.125547</td>
+      <td>0.352153</td>
+      <td>0.048116</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>150</td>
+      <td>KNN</td>
+      <td>6.380200</td>
+      <td>0.191840</td>
+      <td>28.547150</td>
+      <td>1.068192</td>
+      <td>0.422913</td>
+      <td>0.043830</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>150</td>
+      <td>CART</td>
+      <td>6.346948</td>
+      <td>0.292606</td>
+      <td>33.734198</td>
+      <td>2.954824</td>
+      <td>0.192542</td>
+      <td>0.121404</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>190</td>
+      <td>Linear Regression</td>
+      <td>9.509926</td>
+      <td>0.091557</td>
+      <td>30.371558</td>
+      <td>2.114462</td>
+      <td>0.349141</td>
+      <td>0.047317</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>190</td>
+      <td>Ridge Regression</td>
+      <td>9.503399</td>
+      <td>0.089295</td>
+      <td>30.368305</td>
+      <td>2.114046</td>
+      <td>0.349271</td>
+      <td>0.047422</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>190</td>
+      <td>Lasso</td>
+      <td>9.130458</td>
+      <td>0.097242</td>
+      <td>30.284351</td>
+      <td>2.139953</td>
+      <td>0.352853</td>
+      <td>0.048573</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>190</td>
+      <td>Elastic Net</td>
+      <td>9.144115</td>
+      <td>0.094547</td>
+      <td>30.297607</td>
+      <td>2.129799</td>
+      <td>0.352279</td>
+      <td>0.048264</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>190</td>
+      <td>KNN</td>
+      <td>6.390132</td>
+      <td>0.188479</td>
+      <td>28.577314</td>
+      <td>1.109036</td>
+      <td>0.421752</td>
+      <td>0.043827</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>190</td>
+      <td>CART</td>
+      <td>6.399573</td>
+      <td>0.285867</td>
+      <td>34.426479</td>
+      <td>3.186690</td>
+      <td>0.158403</td>
+      <td>0.135199</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+rfe_features
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>30 Features</th>
+      <th>70 Features</th>
+      <th>150 Features</th>
+      <th>190 Features</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>24</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>25</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>26</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>27</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>28</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>29</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>30</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>31</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>32</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>33</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>34</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>35</th>
+      <td>False</td>
+      <td>True</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>36</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>37</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>38</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>39</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>40</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>41</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>42</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>43</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>44</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>45</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>46</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>47</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>48</th>
+      <td>False</td>
+      <td>True</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>49</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>50</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>51</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>52</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>53</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>54</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>55</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>56</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>57</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>58</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>59</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>60</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>61</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>62</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>63</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>64</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>65</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>66</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>67</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>68</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>69</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>70</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>71</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>72</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>73</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>74</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>75</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>76</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>77</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>78</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>79</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>80</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>81</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>82</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>83</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>84</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>85</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>86</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>87</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>88</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>89</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>90</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>91</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>92</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>93</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>94</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>95</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>96</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>97</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>98</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>99</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>100</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>101</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>102</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>103</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>104</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>105</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>106</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>107</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>108</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>109</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>110</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>111</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>112</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>113</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>114</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>115</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>116</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>117</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>118</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>119</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>120</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>121</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>122</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>123</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>124</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>125</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>126</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>127</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>128</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>129</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>130</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>131</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>132</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>133</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>134</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>135</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>136</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>137</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>138</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>139</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>140</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>141</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>142</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>143</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>144</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>145</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>146</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>147</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>148</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>149</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>150</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>151</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>152</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>153</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>154</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>155</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>156</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>157</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>158</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>159</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>160</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>161</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>162</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>163</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>164</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>165</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>166</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>167</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>168</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>169</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>170</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>171</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>172</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>173</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>174</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>175</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>176</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>177</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>178</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>179</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>180</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>181</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>182</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>183</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>184</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>185</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>186</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>187</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>188</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>189</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>190</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>191</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>192</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>193</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>194</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>195</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>196</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>197</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>198</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>199</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>200</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>201</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>202</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>203</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>204</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>205</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>206</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>207</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>208</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>209</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>210</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>211</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>212</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>213</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>214</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>215</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>216</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>217</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>218</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>219</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>220</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>221</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>222</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>223</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>224</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>225</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>226</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>227</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>228</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>229</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>230</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>231</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>232</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>233</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>234</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>235</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>236</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>237</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>238</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>239</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>240</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>241</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>242</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>243</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>244</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>245</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>246</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>247</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>248</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>249</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>250</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>251</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>252</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>253</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>254</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>255</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>256</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>257</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>258</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>259</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>260</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>261</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>262</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>263</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>264</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>265</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>266</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>267</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>268</th>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>269</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>270</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>271</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>272</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>273</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>274</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>275</th>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>276</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>277</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+    </tr>
+    <tr>
+      <th>278</th>
+      <td>False</td>
+      <td>False</td>
+      <td>False</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>279</th>
+      <td>False</td>
+      <td>True</td>
+      <td>True</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+### Feature Importance
+
+Another alternative to reduce the number of features is "to score input features using a model and use a filter-based feature selection method. These are called Feature Importance methods" (BROWNLEE, 2021). The most use Feature Importance methods are Classification and Regression Trees (CART), Random Forest, Bagged Decision Trees, and Gradient Boosting.
+
+We use the Random Forest algorithm as our feature importance method. Decision tree algorithms, such as Random Forest, "offer importance scores based on the reduction in the criterion used to select split points, like Gini or entropy" (BROWNLEE, 2021).
+
+We use the same number of features as in the previous selection methods. Thus, we select the 190, 150, 70, and 30 most relevant features and evaluate the models again. We see that the 30 more important features represent almost 80% of all importance. With the 70 most important features we reach 90%, and with the 150 most important 99%. 
+
+**We can see that that KNN was the best model and that it performed similarly for the four cases tested**. Besides, the models performed a little worse with these features than with the features selected using the RFE method.
+
+
+```python
+# random forest for feature importance on a regression problem
+from sklearn.ensemble import RandomForestRegressor
+
+# feature selection
+def select_features_FI(X_train, y_train,):
+    # configure to select all features
+    RFR = RandomForestRegressor()
+    # learn relationship from training data
+    RFR.fit(X_train, y_train)
+    # transform train input data
+    importance = RFR.feature_importances_
+    return importance
+```
+
+
+```python
+# feature selection
+importance = select_features_FI(blog_X_train, blog_y_train)
+
+# what are scores for the features
+FI = pd.DataFrame(importance, columns = ['Importance'])
+FI.sort_values(by=['Importance'],ascending=False).cumsum().reset_index()
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>index</th>
+      <th>Importance</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>60</td>
+      <td>0.233836</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>51</td>
+      <td>0.355880</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>1</td>
+      <td>0.405083</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>4</td>
+      <td>0.449059</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>19</td>
+      <td>0.485280</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>61</td>
+      <td>0.519114</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>21</td>
+      <td>0.546438</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>11</td>
+      <td>0.573639</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>54</td>
+      <td>0.600359</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>6</td>
+      <td>0.626309</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>20</td>
+      <td>0.649278</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>10</td>
+      <td>0.666500</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>50</td>
+      <td>0.681423</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>53</td>
+      <td>0.694962</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>3</td>
+      <td>0.704801</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>225</td>
+      <td>0.712857</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>56</td>
+      <td>0.720805</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>59</td>
+      <td>0.728462</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>14</td>
+      <td>0.735269</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>58</td>
+      <td>0.741730</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>13</td>
+      <td>0.748010</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>15</td>
+      <td>0.754278</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>68</td>
+      <td>0.760228</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>265</td>
+      <td>0.766074</td>
+    </tr>
+    <tr>
+      <th>24</th>
+      <td>48</td>
+      <td>0.771583</td>
+    </tr>
+    <tr>
+      <th>25</th>
+      <td>55</td>
+      <td>0.776372</td>
+    </tr>
+    <tr>
+      <th>26</th>
+      <td>100</td>
+      <td>0.780783</td>
+    </tr>
+    <tr>
+      <th>27</th>
+      <td>267</td>
+      <td>0.784977</td>
+    </tr>
+    <tr>
+      <th>28</th>
+      <td>273</td>
+      <td>0.789084</td>
+    </tr>
+    <tr>
+      <th>29</th>
+      <td>247</td>
+      <td>0.793145</td>
+    </tr>
+    <tr>
+      <th>30</th>
+      <td>8</td>
+      <td>0.796971</td>
+    </tr>
+    <tr>
+      <th>31</th>
+      <td>193</td>
+      <td>0.800745</td>
+    </tr>
+    <tr>
+      <th>32</th>
+      <td>0</td>
+      <td>0.804475</td>
+    </tr>
+    <tr>
+      <th>33</th>
+      <td>268</td>
+      <td>0.808118</td>
+    </tr>
+    <tr>
+      <th>34</th>
+      <td>18</td>
+      <td>0.811662</td>
+    </tr>
+    <tr>
+      <th>35</th>
+      <td>52</td>
+      <td>0.815029</td>
+    </tr>
+    <tr>
+      <th>36</th>
+      <td>274</td>
+      <td>0.818337</td>
+    </tr>
+    <tr>
+      <th>37</th>
+      <td>271</td>
+      <td>0.821633</td>
+    </tr>
+    <tr>
+      <th>38</th>
+      <td>101</td>
+      <td>0.824873</td>
+    </tr>
+    <tr>
+      <th>39</th>
+      <td>140</td>
+      <td>0.827683</td>
+    </tr>
+    <tr>
+      <th>40</th>
+      <td>63</td>
+      <td>0.830485</td>
+    </tr>
+    <tr>
+      <th>41</th>
+      <td>240</td>
+      <td>0.833249</td>
+    </tr>
+    <tr>
+      <th>42</th>
+      <td>24</td>
+      <td>0.835945</td>
+    </tr>
+    <tr>
+      <th>43</th>
+      <td>153</td>
+      <td>0.838620</td>
+    </tr>
+    <tr>
+      <th>44</th>
+      <td>95</td>
+      <td>0.841184</td>
+    </tr>
+    <tr>
+      <th>45</th>
+      <td>138</td>
+      <td>0.843732</td>
+    </tr>
+    <tr>
+      <th>46</th>
+      <td>246</td>
+      <td>0.846276</td>
+    </tr>
+    <tr>
+      <th>47</th>
+      <td>66</td>
+      <td>0.848689</td>
+    </tr>
+    <tr>
+      <th>48</th>
+      <td>78</td>
+      <td>0.851098</td>
+    </tr>
+    <tr>
+      <th>49</th>
+      <td>170</td>
+      <td>0.853447</td>
+    </tr>
+    <tr>
+      <th>50</th>
+      <td>232</td>
+      <td>0.855792</td>
+    </tr>
+    <tr>
+      <th>51</th>
+      <td>231</td>
+      <td>0.858124</td>
+    </tr>
+    <tr>
+      <th>52</th>
+      <td>229</td>
+      <td>0.860443</td>
+    </tr>
+    <tr>
+      <th>53</th>
+      <td>150</td>
+      <td>0.862756</td>
+    </tr>
+    <tr>
+      <th>54</th>
+      <td>9</td>
+      <td>0.865005</td>
+    </tr>
+    <tr>
+      <th>55</th>
+      <td>5</td>
+      <td>0.867245</td>
+    </tr>
+    <tr>
+      <th>56</th>
+      <td>264</td>
+      <td>0.869481</td>
+    </tr>
+    <tr>
+      <th>57</th>
+      <td>16</td>
+      <td>0.871715</td>
+    </tr>
+    <tr>
+      <th>58</th>
+      <td>157</td>
+      <td>0.873937</td>
+    </tr>
+    <tr>
+      <th>59</th>
+      <td>201</td>
+      <td>0.876113</td>
+    </tr>
+    <tr>
+      <th>60</th>
+      <td>57</td>
+      <td>0.878269</td>
+    </tr>
+    <tr>
+      <th>61</th>
+      <td>269</td>
+      <td>0.880423</td>
+    </tr>
+    <tr>
+      <th>62</th>
+      <td>121</td>
+      <td>0.882568</td>
+    </tr>
+    <tr>
+      <th>63</th>
+      <td>220</td>
+      <td>0.884705</td>
+    </tr>
+    <tr>
+      <th>64</th>
+      <td>139</td>
+      <td>0.886803</td>
+    </tr>
+    <tr>
+      <th>65</th>
+      <td>209</td>
+      <td>0.888868</td>
+    </tr>
+    <tr>
+      <th>66</th>
+      <td>181</td>
+      <td>0.890890</td>
+    </tr>
+    <tr>
+      <th>67</th>
+      <td>113</td>
+      <td>0.892910</td>
+    </tr>
+    <tr>
+      <th>68</th>
+      <td>22</td>
+      <td>0.894921</td>
+    </tr>
+    <tr>
+      <th>69</th>
+      <td>270</td>
+      <td>0.896918</td>
+    </tr>
+    <tr>
+      <th>70</th>
+      <td>119</td>
+      <td>0.898914</td>
+    </tr>
+    <tr>
+      <th>71</th>
+      <td>262</td>
+      <td>0.900910</td>
+    </tr>
+    <tr>
+      <th>72</th>
+      <td>107</td>
+      <td>0.902881</td>
+    </tr>
+    <tr>
+      <th>73</th>
+      <td>190</td>
+      <td>0.904847</td>
+    </tr>
+    <tr>
+      <th>74</th>
+      <td>212</td>
+      <td>0.906802</td>
+    </tr>
+    <tr>
+      <th>75</th>
+      <td>263</td>
+      <td>0.908749</td>
+    </tr>
+    <tr>
+      <th>76</th>
+      <td>192</td>
+      <td>0.910685</td>
+    </tr>
+    <tr>
+      <th>77</th>
+      <td>158</td>
+      <td>0.912601</td>
+    </tr>
+    <tr>
+      <th>78</th>
+      <td>215</td>
+      <td>0.914493</td>
+    </tr>
+    <tr>
+      <th>79</th>
+      <td>266</td>
+      <td>0.916382</td>
+    </tr>
+    <tr>
+      <th>80</th>
+      <td>194</td>
+      <td>0.918255</td>
+    </tr>
+    <tr>
+      <th>81</th>
+      <td>276</td>
+      <td>0.920116</td>
+    </tr>
+    <tr>
+      <th>82</th>
+      <td>179</td>
+      <td>0.921965</td>
+    </tr>
+    <tr>
+      <th>83</th>
+      <td>183</td>
+      <td>0.923780</td>
+    </tr>
+    <tr>
+      <th>84</th>
+      <td>67</td>
+      <td>0.925588</td>
+    </tr>
+    <tr>
+      <th>85</th>
+      <td>162</td>
+      <td>0.927383</td>
+    </tr>
+    <tr>
+      <th>86</th>
+      <td>227</td>
+      <td>0.929140</td>
+    </tr>
+    <tr>
+      <th>87</th>
+      <td>135</td>
+      <td>0.930883</td>
+    </tr>
+    <tr>
+      <th>88</th>
+      <td>272</td>
+      <td>0.932487</td>
+    </tr>
+    <tr>
+      <th>89</th>
+      <td>88</td>
+      <td>0.934080</td>
+    </tr>
+    <tr>
+      <th>90</th>
+      <td>23</td>
+      <td>0.935649</td>
+    </tr>
+    <tr>
+      <th>91</th>
+      <td>188</td>
+      <td>0.937148</td>
+    </tr>
+    <tr>
+      <th>92</th>
+      <td>218</td>
+      <td>0.938620</td>
+    </tr>
+    <tr>
+      <th>93</th>
+      <td>182</td>
+      <td>0.940084</td>
+    </tr>
+    <tr>
+      <th>94</th>
+      <td>279</td>
+      <td>0.941514</td>
+    </tr>
+    <tr>
+      <th>95</th>
+      <td>76</td>
+      <td>0.942940</td>
+    </tr>
+    <tr>
+      <th>96</th>
+      <td>45</td>
+      <td>0.944330</td>
+    </tr>
+    <tr>
+      <th>97</th>
+      <td>207</td>
+      <td>0.945717</td>
+    </tr>
+    <tr>
+      <th>98</th>
+      <td>233</td>
+      <td>0.947039</td>
+    </tr>
+    <tr>
+      <th>99</th>
+      <td>114</td>
+      <td>0.948344</td>
+    </tr>
+    <tr>
+      <th>100</th>
+      <td>137</td>
+      <td>0.949628</td>
+    </tr>
+    <tr>
+      <th>101</th>
+      <td>180</td>
+      <td>0.950878</td>
+    </tr>
+    <tr>
+      <th>102</th>
+      <td>206</td>
+      <td>0.952105</td>
+    </tr>
+    <tr>
+      <th>103</th>
+      <td>28</td>
+      <td>0.953303</td>
+    </tr>
+    <tr>
+      <th>104</th>
+      <td>196</td>
+      <td>0.954492</td>
+    </tr>
+    <tr>
+      <th>105</th>
+      <td>124</td>
+      <td>0.955618</td>
+    </tr>
+    <tr>
+      <th>106</th>
+      <td>244</td>
+      <td>0.956717</td>
+    </tr>
+    <tr>
+      <th>107</th>
+      <td>275</td>
+      <td>0.957786</td>
+    </tr>
+    <tr>
+      <th>108</th>
+      <td>30</td>
+      <td>0.958854</td>
+    </tr>
+    <tr>
+      <th>109</th>
+      <td>169</td>
+      <td>0.959918</td>
+    </tr>
+    <tr>
+      <th>110</th>
+      <td>46</td>
+      <td>0.960936</td>
+    </tr>
+    <tr>
+      <th>111</th>
+      <td>41</td>
+      <td>0.961906</td>
+    </tr>
+    <tr>
+      <th>112</th>
+      <td>133</td>
+      <td>0.962859</td>
+    </tr>
+    <tr>
+      <th>113</th>
+      <td>85</td>
+      <td>0.963804</td>
+    </tr>
+    <tr>
+      <th>114</th>
+      <td>92</td>
+      <td>0.964738</td>
+    </tr>
+    <tr>
+      <th>115</th>
+      <td>161</td>
+      <td>0.965650</td>
+    </tr>
+    <tr>
+      <th>116</th>
+      <td>253</td>
+      <td>0.966550</td>
+    </tr>
+    <tr>
+      <th>117</th>
+      <td>278</td>
+      <td>0.967437</td>
+    </tr>
+    <tr>
+      <th>118</th>
+      <td>47</td>
+      <td>0.968319</td>
+    </tr>
+    <tr>
+      <th>119</th>
+      <td>43</td>
+      <td>0.969183</td>
+    </tr>
+    <tr>
+      <th>120</th>
+      <td>102</td>
+      <td>0.970045</td>
+    </tr>
+    <tr>
+      <th>121</th>
+      <td>31</td>
+      <td>0.970904</td>
+    </tr>
+    <tr>
+      <th>122</th>
+      <td>35</td>
+      <td>0.971758</td>
+    </tr>
+    <tr>
+      <th>123</th>
+      <td>245</td>
+      <td>0.972595</td>
+    </tr>
+    <tr>
+      <th>124</th>
+      <td>25</td>
+      <td>0.973419</td>
+    </tr>
+    <tr>
+      <th>125</th>
+      <td>115</td>
+      <td>0.974219</td>
+    </tr>
+    <tr>
+      <th>126</th>
+      <td>191</td>
+      <td>0.975014</td>
+    </tr>
+    <tr>
+      <th>127</th>
+      <td>33</td>
+      <td>0.975793</td>
+    </tr>
+    <tr>
+      <th>128</th>
+      <td>36</td>
+      <td>0.976569</td>
+    </tr>
+    <tr>
+      <th>129</th>
+      <td>26</td>
+      <td>0.977345</td>
+    </tr>
+    <tr>
+      <th>130</th>
+      <td>120</td>
+      <td>0.978074</td>
+    </tr>
+    <tr>
+      <th>131</th>
+      <td>103</td>
+      <td>0.978779</td>
+    </tr>
+    <tr>
+      <th>132</th>
+      <td>204</td>
+      <td>0.979479</td>
+    </tr>
+    <tr>
+      <th>133</th>
+      <td>142</td>
+      <td>0.980153</td>
+    </tr>
+    <tr>
+      <th>134</th>
+      <td>256</td>
+      <td>0.980823</td>
+    </tr>
+    <tr>
+      <th>135</th>
+      <td>251</td>
+      <td>0.981484</td>
+    </tr>
+    <tr>
+      <th>136</th>
+      <td>38</td>
+      <td>0.982143</td>
+    </tr>
+    <tr>
+      <th>137</th>
+      <td>117</td>
+      <td>0.982798</td>
+    </tr>
+    <tr>
+      <th>138</th>
+      <td>40</td>
+      <td>0.983452</td>
+    </tr>
+    <tr>
+      <th>139</th>
+      <td>84</td>
+      <td>0.984100</td>
+    </tr>
+    <tr>
+      <th>140</th>
+      <td>152</td>
+      <td>0.984742</td>
+    </tr>
+    <tr>
+      <th>141</th>
+      <td>260</td>
+      <td>0.985380</td>
+    </tr>
+    <tr>
+      <th>142</th>
+      <td>109</td>
+      <td>0.986006</td>
+    </tr>
+    <tr>
+      <th>143</th>
+      <td>87</td>
+      <td>0.986609</td>
+    </tr>
+    <tr>
+      <th>144</th>
+      <td>134</td>
+      <td>0.987197</td>
+    </tr>
+    <tr>
+      <th>145</th>
+      <td>257</td>
+      <td>0.987780</td>
+    </tr>
+    <tr>
+      <th>146</th>
+      <td>254</td>
+      <td>0.988355</td>
+    </tr>
+    <tr>
+      <th>147</th>
+      <td>71</td>
+      <td>0.988921</td>
+    </tr>
+    <tr>
+      <th>148</th>
+      <td>118</td>
+      <td>0.989454</td>
+    </tr>
+    <tr>
+      <th>149</th>
+      <td>214</td>
+      <td>0.989977</td>
+    </tr>
+    <tr>
+      <th>150</th>
+      <td>195</td>
+      <td>0.990492</td>
+    </tr>
+    <tr>
+      <th>151</th>
+      <td>185</td>
+      <td>0.990960</td>
+    </tr>
+    <tr>
+      <th>152</th>
+      <td>44</td>
+      <td>0.991415</td>
+    </tr>
+    <tr>
+      <th>153</th>
+      <td>141</td>
+      <td>0.991856</td>
+    </tr>
+    <tr>
+      <th>154</th>
+      <td>136</td>
+      <td>0.992293</td>
+    </tr>
+    <tr>
+      <th>155</th>
+      <td>2</td>
+      <td>0.992722</td>
+    </tr>
+    <tr>
+      <th>156</th>
+      <td>217</td>
+      <td>0.993149</td>
+    </tr>
+    <tr>
+      <th>157</th>
+      <td>29</td>
+      <td>0.993569</td>
+    </tr>
+    <tr>
+      <th>158</th>
+      <td>143</td>
+      <td>0.993987</td>
+    </tr>
+    <tr>
+      <th>159</th>
+      <td>17</td>
+      <td>0.994370</td>
+    </tr>
+    <tr>
+      <th>160</th>
+      <td>174</td>
+      <td>0.994705</td>
+    </tr>
+    <tr>
+      <th>161</th>
+      <td>250</td>
+      <td>0.995026</td>
+    </tr>
+    <tr>
+      <th>162</th>
+      <td>156</td>
+      <td>0.995339</td>
+    </tr>
+    <tr>
+      <th>163</th>
+      <td>248</td>
+      <td>0.995637</td>
+    </tr>
+    <tr>
+      <th>164</th>
+      <td>226</td>
+      <td>0.995932</td>
+    </tr>
+    <tr>
+      <th>165</th>
+      <td>173</td>
+      <td>0.996203</td>
+    </tr>
+    <tr>
+      <th>166</th>
+      <td>97</td>
+      <td>0.996430</td>
+    </tr>
+    <tr>
+      <th>167</th>
+      <td>224</td>
+      <td>0.996653</td>
+    </tr>
+    <tr>
+      <th>168</th>
+      <td>163</td>
+      <td>0.996871</td>
+    </tr>
+    <tr>
+      <th>169</th>
+      <td>127</td>
+      <td>0.997084</td>
+    </tr>
+    <tr>
+      <th>170</th>
+      <td>230</td>
+      <td>0.997290</td>
+    </tr>
+    <tr>
+      <th>171</th>
+      <td>144</td>
+      <td>0.997457</td>
+    </tr>
+    <tr>
+      <th>172</th>
+      <td>205</td>
+      <td>0.997613</td>
+    </tr>
+    <tr>
+      <th>173</th>
+      <td>186</td>
+      <td>0.997764</td>
+    </tr>
+    <tr>
+      <th>174</th>
+      <td>104</td>
+      <td>0.997896</td>
+    </tr>
+    <tr>
+      <th>175</th>
+      <td>208</td>
+      <td>0.998025</td>
+    </tr>
+    <tr>
+      <th>176</th>
+      <td>176</td>
+      <td>0.998135</td>
+    </tr>
+    <tr>
+      <th>177</th>
+      <td>241</td>
+      <td>0.998242</td>
+    </tr>
+    <tr>
+      <th>178</th>
+      <td>259</td>
+      <td>0.998347</td>
+    </tr>
+    <tr>
+      <th>179</th>
+      <td>210</td>
+      <td>0.998450</td>
+    </tr>
+    <tr>
+      <th>180</th>
+      <td>62</td>
+      <td>0.998547</td>
+    </tr>
+    <tr>
+      <th>181</th>
+      <td>106</td>
+      <td>0.998629</td>
+    </tr>
+    <tr>
+      <th>182</th>
+      <td>236</td>
+      <td>0.998707</td>
+    </tr>
+    <tr>
+      <th>183</th>
+      <td>34</td>
+      <td>0.998785</td>
+    </tr>
+    <tr>
+      <th>184</th>
+      <td>203</td>
+      <td>0.998863</td>
+    </tr>
+    <tr>
+      <th>185</th>
+      <td>116</td>
+      <td>0.998937</td>
+    </tr>
+    <tr>
+      <th>186</th>
+      <td>70</td>
+      <td>0.999010</td>
+    </tr>
+    <tr>
+      <th>187</th>
+      <td>7</td>
+      <td>0.999077</td>
+    </tr>
+    <tr>
+      <th>188</th>
+      <td>216</td>
+      <td>0.999143</td>
+    </tr>
+    <tr>
+      <th>189</th>
+      <td>91</td>
+      <td>0.999206</td>
+    </tr>
+    <tr>
+      <th>190</th>
+      <td>74</td>
+      <td>0.999267</td>
+    </tr>
+    <tr>
+      <th>191</th>
+      <td>149</td>
+      <td>0.999324</td>
+    </tr>
+    <tr>
+      <th>192</th>
+      <td>239</td>
+      <td>0.999381</td>
+    </tr>
+    <tr>
+      <th>193</th>
+      <td>146</td>
+      <td>0.999433</td>
+    </tr>
+    <tr>
+      <th>194</th>
+      <td>258</td>
+      <td>0.999477</td>
+    </tr>
+    <tr>
+      <th>195</th>
+      <td>123</td>
+      <td>0.999520</td>
+    </tr>
+    <tr>
+      <th>196</th>
+      <td>187</td>
+      <td>0.999561</td>
+    </tr>
+    <tr>
+      <th>197</th>
+      <td>81</td>
+      <td>0.999602</td>
+    </tr>
+    <tr>
+      <th>198</th>
+      <td>126</td>
+      <td>0.999639</td>
+    </tr>
+    <tr>
+      <th>199</th>
+      <td>89</td>
+      <td>0.999673</td>
+    </tr>
+    <tr>
+      <th>200</th>
+      <td>164</td>
+      <td>0.999707</td>
+    </tr>
+    <tr>
+      <th>201</th>
+      <td>175</td>
+      <td>0.999734</td>
+    </tr>
+    <tr>
+      <th>202</th>
+      <td>69</td>
+      <td>0.999756</td>
+    </tr>
+    <tr>
+      <th>203</th>
+      <td>198</td>
+      <td>0.999778</td>
+    </tr>
+    <tr>
+      <th>204</th>
+      <td>130</td>
+      <td>0.999798</td>
+    </tr>
+    <tr>
+      <th>205</th>
+      <td>77</td>
+      <td>0.999818</td>
+    </tr>
+    <tr>
+      <th>206</th>
+      <td>200</td>
+      <td>0.999837</td>
+    </tr>
+    <tr>
+      <th>207</th>
+      <td>132</td>
+      <td>0.999855</td>
+    </tr>
+    <tr>
+      <th>208</th>
+      <td>145</td>
+      <td>0.999872</td>
+    </tr>
+    <tr>
+      <th>209</th>
+      <td>221</td>
+      <td>0.999889</td>
+    </tr>
+    <tr>
+      <th>210</th>
+      <td>237</td>
+      <td>0.999899</td>
+    </tr>
+    <tr>
+      <th>211</th>
+      <td>42</td>
+      <td>0.999908</td>
+    </tr>
+    <tr>
+      <th>212</th>
+      <td>219</td>
+      <td>0.999917</td>
+    </tr>
+    <tr>
+      <th>213</th>
+      <td>228</td>
+      <td>0.999926</td>
+    </tr>
+    <tr>
+      <th>214</th>
+      <td>238</td>
+      <td>0.999933</td>
+    </tr>
+    <tr>
+      <th>215</th>
+      <td>98</td>
+      <td>0.999940</td>
+    </tr>
+    <tr>
+      <th>216</th>
+      <td>65</td>
+      <td>0.999946</td>
+    </tr>
+    <tr>
+      <th>217</th>
+      <td>166</td>
+      <td>0.999952</td>
+    </tr>
+    <tr>
+      <th>218</th>
+      <td>159</td>
+      <td>0.999957</td>
+    </tr>
+    <tr>
+      <th>219</th>
+      <td>39</td>
+      <td>0.999962</td>
+    </tr>
+    <tr>
+      <th>220</th>
+      <td>213</td>
+      <td>0.999966</td>
+    </tr>
+    <tr>
+      <th>221</th>
+      <td>99</td>
+      <td>0.999970</td>
+    </tr>
+    <tr>
+      <th>222</th>
+      <td>234</td>
+      <td>0.999973</td>
+    </tr>
+    <tr>
+      <th>223</th>
+      <td>82</td>
+      <td>0.999976</td>
+    </tr>
+    <tr>
+      <th>224</th>
+      <td>105</td>
+      <td>0.999980</td>
+    </tr>
+    <tr>
+      <th>225</th>
+      <td>125</td>
+      <td>0.999983</td>
+    </tr>
+    <tr>
+      <th>226</th>
+      <td>151</td>
+      <td>0.999985</td>
+    </tr>
+    <tr>
+      <th>227</th>
+      <td>27</td>
+      <td>0.999988</td>
+    </tr>
+    <tr>
+      <th>228</th>
+      <td>49</td>
+      <td>0.999990</td>
+    </tr>
+    <tr>
+      <th>229</th>
+      <td>112</td>
+      <td>0.999992</td>
+    </tr>
+    <tr>
+      <th>230</th>
+      <td>184</td>
+      <td>0.999993</td>
+    </tr>
+    <tr>
+      <th>231</th>
+      <td>167</td>
+      <td>0.999995</td>
+    </tr>
+    <tr>
+      <th>232</th>
+      <td>73</td>
+      <td>0.999996</td>
+    </tr>
+    <tr>
+      <th>233</th>
+      <td>255</td>
+      <td>0.999997</td>
+    </tr>
+    <tr>
+      <th>234</th>
+      <td>202</td>
+      <td>0.999998</td>
+    </tr>
+    <tr>
+      <th>235</th>
+      <td>122</td>
+      <td>0.999999</td>
+    </tr>
+    <tr>
+      <th>236</th>
+      <td>90</td>
+      <td>0.999999</td>
+    </tr>
+    <tr>
+      <th>237</th>
+      <td>171</td>
+      <td>0.999999</td>
+    </tr>
+    <tr>
+      <th>238</th>
+      <td>223</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>239</th>
+      <td>261</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>240</th>
+      <td>83</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>241</th>
+      <td>110</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>242</th>
+      <td>111</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>243</th>
+      <td>147</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>244</th>
+      <td>94</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>245</th>
+      <td>172</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>246</th>
+      <td>128</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>247</th>
+      <td>154</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>248</th>
+      <td>235</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>249</th>
+      <td>177</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>250</th>
+      <td>252</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>251</th>
+      <td>86</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>252</th>
+      <td>243</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>253</th>
+      <td>211</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>254</th>
+      <td>222</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>255</th>
+      <td>108</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>256</th>
+      <td>155</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>257</th>
+      <td>129</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>258</th>
+      <td>197</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>259</th>
+      <td>277</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>260</th>
+      <td>199</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>261</th>
+      <td>96</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>262</th>
+      <td>93</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>263</th>
+      <td>178</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>264</th>
+      <td>37</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>265</th>
+      <td>168</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>266</th>
+      <td>165</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>267</th>
+      <td>32</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>268</th>
+      <td>148</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>269</th>
+      <td>12</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>270</th>
+      <td>80</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>271</th>
+      <td>64</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>272</th>
+      <td>79</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>273</th>
+      <td>189</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>274</th>
+      <td>242</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>275</th>
+      <td>75</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>276</th>
+      <td>131</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>277</th>
+      <td>249</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>278</th>
+      <td>72</td>
+      <td>1.000000</td>
+    </tr>
+    <tr>
+      <th>279</th>
+      <td>160</td>
+      <td>1.000000</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+matriz_fi = pd.DataFrame(columns=['features','model','MAE_mean','MAE_std','RMSE_mean','RMSE_std','R2_mean','R2_std'])
+
+for k in [30,70,150,190]:
+
+    best_features_fi = FI.transpose()
+    best_features_fi.columns = blog_X_train.columns
+    best_features_fi.sort_values('Importance',axis=1,ascending=False,inplace=True)
+    best_features_fi.drop(best_features_fi.iloc[:,k:],axis=1,inplace=True)
+    blog_X_train_fi = blog_X_train[best_features_fi.columns]
+  
+    matriz_fi = estimator_cross_val_fea(k,'Linear Regression',LinearRegression(),     estimator_transf,matriz_fi,rs,blog_X_train_fi,blog_y_train)
+    matriz_fi = estimator_cross_val_fea(k,'Ridge Regression', Ridge(),                estimator_transf,matriz_fi,rs,blog_X_train_fi,blog_y_train)
+    matriz_fi = estimator_cross_val_fea(k,'Lasso',            Lasso(),                estimator_transf,matriz_fi,rs,blog_X_train_fi,blog_y_train)
+    matriz_fi = estimator_cross_val_fea(k,'Elastic Net',      ElasticNet(),           estimator_transf,matriz_fi,rs,blog_X_train_fi,blog_y_train)
+    matriz_fi = estimator_cross_val_fea(k,'KNN',              KNeighborsRegressor(),  estimator_transf,matriz_fi,rs,blog_X_train_fi,blog_y_train)
+    matriz_fi = estimator_cross_val_fea(k,'CART',             DecisionTreeRegressor(),estimator_transf,matriz_fi,rs,blog_X_train_fi,blog_y_train)
+
+matriz_fi
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>features</th>
+      <th>model</th>
+      <th>MAE_mean</th>
+      <th>MAE_std</th>
+      <th>RMSE_mean</th>
+      <th>RMSE_std</th>
+      <th>R2_mean</th>
+      <th>R2_std</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>30</td>
+      <td>Linear Regression</td>
+      <td>9.215162</td>
+      <td>0.085426</td>
+      <td>30.288801</td>
+      <td>2.135071</td>
+      <td>0.352645</td>
+      <td>0.048617</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>30</td>
+      <td>Ridge Regression</td>
+      <td>9.215138</td>
+      <td>0.085427</td>
+      <td>30.288797</td>
+      <td>2.135071</td>
+      <td>0.352645</td>
+      <td>0.048617</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>30</td>
+      <td>Lasso</td>
+      <td>9.129967</td>
+      <td>0.102219</td>
+      <td>30.268826</td>
+      <td>2.153477</td>
+      <td>0.353507</td>
+      <td>0.049235</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>30</td>
+      <td>Elastic Net</td>
+      <td>9.151172</td>
+      <td>0.101606</td>
+      <td>30.271307</td>
+      <td>2.153273</td>
+      <td>0.353381</td>
+      <td>0.049473</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>30</td>
+      <td>KNN</td>
+      <td>6.390071</td>
+      <td>0.175214</td>
+      <td>28.600131</td>
+      <td>1.181100</td>
+      <td>0.421623</td>
+      <td>0.033184</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>30</td>
+      <td>CART</td>
+      <td>6.346084</td>
+      <td>0.313916</td>
+      <td>33.064939</td>
+      <td>3.252297</td>
+      <td>0.221103</td>
+      <td>0.144679</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>70</td>
+      <td>Linear Regression</td>
+      <td>9.319528</td>
+      <td>0.092706</td>
+      <td>30.332038</td>
+      <td>2.114239</td>
+      <td>0.350780</td>
+      <td>0.047987</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>70</td>
+      <td>Ridge Regression</td>
+      <td>9.311305</td>
+      <td>0.087722</td>
+      <td>30.330393</td>
+      <td>2.114602</td>
+      <td>0.350843</td>
+      <td>0.048102</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>70</td>
+      <td>Lasso</td>
+      <td>9.118657</td>
+      <td>0.099454</td>
+      <td>30.268890</td>
+      <td>2.161280</td>
+      <td>0.353461</td>
+      <td>0.050071</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>70</td>
+      <td>Elastic Net</td>
+      <td>9.137884</td>
+      <td>0.096448</td>
+      <td>30.289800</td>
+      <td>2.149262</td>
+      <td>0.352580</td>
+      <td>0.049460</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>70</td>
+      <td>KNN</td>
+      <td>6.404354</td>
+      <td>0.188587</td>
+      <td>28.632275</td>
+      <td>1.106485</td>
+      <td>0.419611</td>
+      <td>0.042727</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>70</td>
+      <td>CART</td>
+      <td>6.504972</td>
+      <td>0.433481</td>
+      <td>34.278965</td>
+      <td>3.701548</td>
+      <td>0.158598</td>
+      <td>0.182231</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>150</td>
+      <td>Linear Regression</td>
+      <td>9.448329</td>
+      <td>0.079941</td>
+      <td>30.371398</td>
+      <td>2.125482</td>
+      <td>0.349129</td>
+      <td>0.048015</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>150</td>
+      <td>Ridge Regression</td>
+      <td>9.442058</td>
+      <td>0.076915</td>
+      <td>30.368486</td>
+      <td>2.124648</td>
+      <td>0.349244</td>
+      <td>0.048103</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>150</td>
+      <td>Lasso</td>
+      <td>9.133528</td>
+      <td>0.098377</td>
+      <td>30.271053</td>
+      <td>2.163223</td>
+      <td>0.353363</td>
+      <td>0.050215</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>150</td>
+      <td>Elastic Net</td>
+      <td>9.149090</td>
+      <td>0.095997</td>
+      <td>30.289858</td>
+      <td>2.148739</td>
+      <td>0.352572</td>
+      <td>0.049510</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>150</td>
+      <td>KNN</td>
+      <td>6.390369</td>
+      <td>0.188168</td>
+      <td>28.570243</td>
+      <td>1.107732</td>
+      <td>0.422075</td>
+      <td>0.043243</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>150</td>
+      <td>CART</td>
+      <td>6.463448</td>
+      <td>0.264339</td>
+      <td>34.543348</td>
+      <td>2.637511</td>
+      <td>0.151365</td>
+      <td>0.126868</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>190</td>
+      <td>Linear Regression</td>
+      <td>9.505498</td>
+      <td>0.090742</td>
+      <td>30.381834</td>
+      <td>2.105945</td>
+      <td>0.348659</td>
+      <td>0.047507</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>190</td>
+      <td>Ridge Regression</td>
+      <td>9.499521</td>
+      <td>0.088719</td>
+      <td>30.377565</td>
+      <td>2.105256</td>
+      <td>0.348836</td>
+      <td>0.047560</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>190</td>
+      <td>Lasso</td>
+      <td>9.122078</td>
+      <td>0.093532</td>
+      <td>30.291712</td>
+      <td>2.144632</td>
+      <td>0.352490</td>
+      <td>0.049360</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>190</td>
+      <td>Elastic Net</td>
+      <td>9.141841</td>
+      <td>0.092861</td>
+      <td>30.305065</td>
+      <td>2.136060</td>
+      <td>0.351926</td>
+      <td>0.048940</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>190</td>
+      <td>KNN</td>
+      <td>6.390182</td>
+      <td>0.188812</td>
+      <td>28.577377</td>
+      <td>1.109084</td>
+      <td>0.421749</td>
+      <td>0.043835</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>190</td>
+      <td>CART</td>
+      <td>6.426869</td>
+      <td>0.252181</td>
+      <td>34.310613</td>
+      <td>2.836365</td>
+      <td>0.164378</td>
+      <td>0.121539</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+### Comparing the features
+
+Finally, we compare the features selected by each model. We see that the percentage of features selected by all methods increase as the number of features used increases:
+
+1. 30 best - 8 shared (26.7%)
+2. 70 best - 29 shared (41.4%)
+3. 150 best - 93 shared (62.0%)
+4. 190 best - 135 shared (71.1%)
+
+Besides, we can argue that the 8 features that were selected by all methods as one of the 30 most relevant fatures are the most significant ones for predicting our target variable.
+
+
+```python
+MI_30 = MI.sort_values(by=['Score'],ascending=False)[:30].reset_index()
+FI_30 = FI.sort_values(by=['Importance'],ascending=False)[:30].reset_index()
+RF_30 = rfe_features.sort_values(by=['30 Features'],ascending=False)[:30].reset_index()
+RF_30 = RF_30.drop(columns=['70 Features','150 Features','190 Features'])
+merged_30 = pd.merge(FI_30, MI_30, on=['index'], how='inner')
+merged_30 = pd.merge(merged_30, RF_30, on=['index'], how='inner')
+merged_30
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>index</th>
+      <th>Importance</th>
+      <th>Score</th>
+      <th>30 Features</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>51</td>
+      <td>0.122044</td>
+      <td>0.275880</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>4</td>
+      <td>0.043976</td>
+      <td>0.178890</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>21</td>
+      <td>0.027324</td>
+      <td>0.209719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>54</td>
+      <td>0.026720</td>
+      <td>0.237840</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>20</td>
+      <td>0.022969</td>
+      <td>0.202529</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>50</td>
+      <td>0.014923</td>
+      <td>0.174909</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>53</td>
+      <td>0.013539</td>
+      <td>0.170095</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>3</td>
+      <td>0.009840</td>
+      <td>0.186027</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>15</td>
+      <td>0.006268</td>
+      <td>0.194932</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+MI_70 = MI.sort_values(by=['Score'],ascending=False)[:70].reset_index()
+FI_70 = FI.sort_values(by=['Importance'],ascending=False)[:70].reset_index()
+RF_70 = rfe_features.sort_values(by=['70 Features'],ascending=False)[:70].reset_index()
+RF_70 = RF_70.drop(columns=['30 Features','150 Features','190 Features'])
+merged_70 = pd.merge(FI_70, MI_70, on=['index'], how='inner')
+merged_70 = pd.merge(merged_70, RF_70, on=['index'], how='inner')
+merged_70
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>index</th>
+      <th>Importance</th>
+      <th>Score</th>
+      <th>70 Features</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>60</td>
+      <td>0.233836</td>
+      <td>0.063339</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>51</td>
+      <td>0.122044</td>
+      <td>0.275880</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>1</td>
+      <td>0.049203</td>
+      <td>0.206831</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>4</td>
+      <td>0.043976</td>
+      <td>0.178890</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>61</td>
+      <td>0.033834</td>
+      <td>0.073060</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>21</td>
+      <td>0.027324</td>
+      <td>0.209719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>54</td>
+      <td>0.026720</td>
+      <td>0.237840</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>20</td>
+      <td>0.022969</td>
+      <td>0.202529</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>50</td>
+      <td>0.014923</td>
+      <td>0.174909</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>53</td>
+      <td>0.013539</td>
+      <td>0.170095</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>3</td>
+      <td>0.009840</td>
+      <td>0.186027</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>225</td>
+      <td>0.008055</td>
+      <td>0.024111</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>56</td>
+      <td>0.007948</td>
+      <td>0.025834</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>59</td>
+      <td>0.007657</td>
+      <td>0.017393</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>58</td>
+      <td>0.006461</td>
+      <td>0.012028</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>15</td>
+      <td>0.006268</td>
+      <td>0.194932</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>68</td>
+      <td>0.005950</td>
+      <td>0.018598</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>48</td>
+      <td>0.005509</td>
+      <td>0.064550</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>55</td>
+      <td>0.004789</td>
+      <td>0.015041</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>100</td>
+      <td>0.004411</td>
+      <td>0.064659</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>247</td>
+      <td>0.004061</td>
+      <td>0.009429</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>52</td>
+      <td>0.003366</td>
+      <td>0.056459</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>24</td>
+      <td>0.002695</td>
+      <td>0.058171</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>138</td>
+      <td>0.002549</td>
+      <td>0.018655</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>24</th>
+      <td>66</td>
+      <td>0.002413</td>
+      <td>0.030007</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>25</th>
+      <td>78</td>
+      <td>0.002409</td>
+      <td>0.012075</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>26</th>
+      <td>231</td>
+      <td>0.002332</td>
+      <td>0.030719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>27</th>
+      <td>9</td>
+      <td>0.002249</td>
+      <td>0.168995</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>28</th>
+      <td>5</td>
+      <td>0.002239</td>
+      <td>0.202373</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>29</th>
+      <td>22</td>
+      <td>0.002011</td>
+      <td>0.184062</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+MI_150 = MI.sort_values(by=['Score'],ascending=False)[:150].reset_index()
+FI_150 = FI.sort_values(by=['Importance'],ascending=False)[:150].reset_index()
+RF_150 = rfe_features.sort_values(by=['150 Features'],ascending=False)[:150].reset_index()
+RF_150 = RF_150.drop(columns=['30 Features','70 Features','190 Features'])
+merged_150 = pd.merge(FI_150, MI_150, on=['index'], how='inner')
+merged_150 = pd.merge(merged_150, RF_150, on=['index'], how='inner')
+merged_150
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>index</th>
+      <th>Importance</th>
+      <th>Score</th>
+      <th>150 Features</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>60</td>
+      <td>0.233836</td>
+      <td>0.063339</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>51</td>
+      <td>0.122044</td>
+      <td>0.275880</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>1</td>
+      <td>0.049203</td>
+      <td>0.206831</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>4</td>
+      <td>0.043976</td>
+      <td>0.178890</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>19</td>
+      <td>0.036221</td>
+      <td>0.173680</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>61</td>
+      <td>0.033834</td>
+      <td>0.073060</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>21</td>
+      <td>0.027324</td>
+      <td>0.209719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>54</td>
+      <td>0.026720</td>
+      <td>0.237840</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>6</td>
+      <td>0.025950</td>
+      <td>0.207496</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>20</td>
+      <td>0.022969</td>
+      <td>0.202529</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>10</td>
+      <td>0.017222</td>
+      <td>0.203635</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>50</td>
+      <td>0.014923</td>
+      <td>0.174909</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>53</td>
+      <td>0.013539</td>
+      <td>0.170095</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>3</td>
+      <td>0.009840</td>
+      <td>0.186027</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>225</td>
+      <td>0.008055</td>
+      <td>0.024111</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>56</td>
+      <td>0.007948</td>
+      <td>0.025834</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>59</td>
+      <td>0.007657</td>
+      <td>0.017393</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>14</td>
+      <td>0.006806</td>
+      <td>0.135486</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>58</td>
+      <td>0.006461</td>
+      <td>0.012028</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>13</td>
+      <td>0.006280</td>
+      <td>0.188195</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>15</td>
+      <td>0.006268</td>
+      <td>0.194932</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>68</td>
+      <td>0.005950</td>
+      <td>0.018598</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>265</td>
+      <td>0.005846</td>
+      <td>0.003709</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>55</td>
+      <td>0.004789</td>
+      <td>0.015041</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>24</th>
+      <td>100</td>
+      <td>0.004411</td>
+      <td>0.064659</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>25</th>
+      <td>267</td>
+      <td>0.004194</td>
+      <td>0.002220</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>26</th>
+      <td>247</td>
+      <td>0.004061</td>
+      <td>0.009429</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>27</th>
+      <td>8</td>
+      <td>0.003826</td>
+      <td>0.190217</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>28</th>
+      <td>193</td>
+      <td>0.003775</td>
+      <td>0.006739</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>29</th>
+      <td>0</td>
+      <td>0.003730</td>
+      <td>0.207897</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>30</th>
+      <td>18</td>
+      <td>0.003545</td>
+      <td>0.183795</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>31</th>
+      <td>52</td>
+      <td>0.003366</td>
+      <td>0.056459</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>32</th>
+      <td>271</td>
+      <td>0.003296</td>
+      <td>0.002224</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>33</th>
+      <td>63</td>
+      <td>0.002802</td>
+      <td>0.007725</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>34</th>
+      <td>24</td>
+      <td>0.002695</td>
+      <td>0.058171</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>35</th>
+      <td>95</td>
+      <td>0.002564</td>
+      <td>0.005262</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>36</th>
+      <td>138</td>
+      <td>0.002549</td>
+      <td>0.018655</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>37</th>
+      <td>246</td>
+      <td>0.002543</td>
+      <td>0.005080</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>38</th>
+      <td>66</td>
+      <td>0.002413</td>
+      <td>0.030007</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>39</th>
+      <td>78</td>
+      <td>0.002409</td>
+      <td>0.012075</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>40</th>
+      <td>232</td>
+      <td>0.002346</td>
+      <td>0.008656</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>41</th>
+      <td>231</td>
+      <td>0.002332</td>
+      <td>0.030719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>42</th>
+      <td>150</td>
+      <td>0.002313</td>
+      <td>0.008241</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>43</th>
+      <td>9</td>
+      <td>0.002249</td>
+      <td>0.168995</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>44</th>
+      <td>5</td>
+      <td>0.002239</td>
+      <td>0.202373</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>45</th>
+      <td>264</td>
+      <td>0.002237</td>
+      <td>0.001187</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>46</th>
+      <td>16</td>
+      <td>0.002234</td>
+      <td>0.200722</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>47</th>
+      <td>157</td>
+      <td>0.002222</td>
+      <td>0.029748</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>48</th>
+      <td>201</td>
+      <td>0.002176</td>
+      <td>0.006684</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>49</th>
+      <td>269</td>
+      <td>0.002154</td>
+      <td>0.002892</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>50</th>
+      <td>121</td>
+      <td>0.002145</td>
+      <td>0.007161</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>51</th>
+      <td>209</td>
+      <td>0.002064</td>
+      <td>0.017102</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>52</th>
+      <td>113</td>
+      <td>0.002020</td>
+      <td>0.010003</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>53</th>
+      <td>22</td>
+      <td>0.002011</td>
+      <td>0.184062</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>54</th>
+      <td>270</td>
+      <td>0.001997</td>
+      <td>0.003099</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>55</th>
+      <td>119</td>
+      <td>0.001996</td>
+      <td>0.006538</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>56</th>
+      <td>190</td>
+      <td>0.001967</td>
+      <td>0.005337</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>57</th>
+      <td>212</td>
+      <td>0.001954</td>
+      <td>0.039152</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>58</th>
+      <td>192</td>
+      <td>0.001936</td>
+      <td>0.002174</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>59</th>
+      <td>276</td>
+      <td>0.001862</td>
+      <td>0.001180</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>60</th>
+      <td>183</td>
+      <td>0.001815</td>
+      <td>0.003334</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>61</th>
+      <td>67</td>
+      <td>0.001807</td>
+      <td>0.007090</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>62</th>
+      <td>272</td>
+      <td>0.001604</td>
+      <td>0.000894</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>63</th>
+      <td>23</td>
+      <td>0.001569</td>
+      <td>0.191542</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>64</th>
+      <td>218</td>
+      <td>0.001472</td>
+      <td>0.002179</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>65</th>
+      <td>182</td>
+      <td>0.001464</td>
+      <td>0.004222</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>66</th>
+      <td>76</td>
+      <td>0.001425</td>
+      <td>0.004020</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>67</th>
+      <td>45</td>
+      <td>0.001391</td>
+      <td>0.076726</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>68</th>
+      <td>233</td>
+      <td>0.001322</td>
+      <td>0.004177</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>69</th>
+      <td>137</td>
+      <td>0.001284</td>
+      <td>0.002078</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>70</th>
+      <td>206</td>
+      <td>0.001226</td>
+      <td>0.002739</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>71</th>
+      <td>196</td>
+      <td>0.001189</td>
+      <td>0.001731</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>72</th>
+      <td>30</td>
+      <td>0.001068</td>
+      <td>0.107790</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>73</th>
+      <td>169</td>
+      <td>0.001064</td>
+      <td>0.001286</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>74</th>
+      <td>46</td>
+      <td>0.001017</td>
+      <td>0.114905</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>75</th>
+      <td>41</td>
+      <td>0.000970</td>
+      <td>0.108989</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>76</th>
+      <td>133</td>
+      <td>0.000953</td>
+      <td>0.001990</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>77</th>
+      <td>85</td>
+      <td>0.000945</td>
+      <td>0.001555</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>78</th>
+      <td>92</td>
+      <td>0.000934</td>
+      <td>0.001695</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>79</th>
+      <td>47</td>
+      <td>0.000882</td>
+      <td>0.050074</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>80</th>
+      <td>43</td>
+      <td>0.000864</td>
+      <td>0.058855</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>81</th>
+      <td>102</td>
+      <td>0.000862</td>
+      <td>0.003610</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>82</th>
+      <td>31</td>
+      <td>0.000859</td>
+      <td>0.119140</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>83</th>
+      <td>25</td>
+      <td>0.000824</td>
+      <td>0.115724</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>84</th>
+      <td>191</td>
+      <td>0.000794</td>
+      <td>0.001015</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>85</th>
+      <td>26</td>
+      <td>0.000776</td>
+      <td>0.118753</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>86</th>
+      <td>120</td>
+      <td>0.000729</td>
+      <td>0.000872</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>87</th>
+      <td>103</td>
+      <td>0.000704</td>
+      <td>0.008166</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>88</th>
+      <td>38</td>
+      <td>0.000659</td>
+      <td>0.050571</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>89</th>
+      <td>40</td>
+      <td>0.000654</td>
+      <td>0.104771</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>90</th>
+      <td>260</td>
+      <td>0.000638</td>
+      <td>0.002067</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>91</th>
+      <td>87</td>
+      <td>0.000603</td>
+      <td>0.005123</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>92</th>
+      <td>254</td>
+      <td>0.000576</td>
+      <td>0.002906</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>93</th>
+      <td>71</td>
+      <td>0.000566</td>
+      <td>0.015419</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+MI_190 = MI.sort_values(by=['Score'],ascending=False)[:190].reset_index()
+FI_190 = FI.sort_values(by=['Importance'],ascending=False)[:190].reset_index()
+RF_190 = rfe_features.sort_values(by=['190 Features'],ascending=False)[:190].reset_index()
+RF_190 = RF_190.drop(columns=['30 Features','70 Features','150 Features'])
+merged_190 = pd.merge(FI_190, MI_190, on=['index'], how='inner')
+merged_190 = pd.merge(merged_190, RF_190, on=['index'], how='inner')
+merged_190
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>index</th>
+      <th>Importance</th>
+      <th>Score</th>
+      <th>190 Features</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>60</td>
+      <td>0.233836</td>
+      <td>0.063339</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>51</td>
+      <td>0.122044</td>
+      <td>0.275880</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>1</td>
+      <td>0.049203</td>
+      <td>0.206831</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>4</td>
+      <td>0.043976</td>
+      <td>0.178890</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>19</td>
+      <td>0.036221</td>
+      <td>0.173680</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>61</td>
+      <td>0.033834</td>
+      <td>0.073060</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>21</td>
+      <td>0.027324</td>
+      <td>0.209719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>11</td>
+      <td>0.027200</td>
+      <td>0.208136</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>54</td>
+      <td>0.026720</td>
+      <td>0.237840</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>6</td>
+      <td>0.025950</td>
+      <td>0.207496</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>20</td>
+      <td>0.022969</td>
+      <td>0.202529</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>10</td>
+      <td>0.017222</td>
+      <td>0.203635</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>50</td>
+      <td>0.014923</td>
+      <td>0.174909</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>53</td>
+      <td>0.013539</td>
+      <td>0.170095</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>3</td>
+      <td>0.009840</td>
+      <td>0.186027</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>225</td>
+      <td>0.008055</td>
+      <td>0.024111</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>56</td>
+      <td>0.007948</td>
+      <td>0.025834</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>59</td>
+      <td>0.007657</td>
+      <td>0.017393</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>14</td>
+      <td>0.006806</td>
+      <td>0.135486</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>58</td>
+      <td>0.006461</td>
+      <td>0.012028</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>13</td>
+      <td>0.006280</td>
+      <td>0.188195</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>15</td>
+      <td>0.006268</td>
+      <td>0.194932</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>68</td>
+      <td>0.005950</td>
+      <td>0.018598</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>265</td>
+      <td>0.005846</td>
+      <td>0.003709</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>24</th>
+      <td>48</td>
+      <td>0.005509</td>
+      <td>0.064550</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>25</th>
+      <td>55</td>
+      <td>0.004789</td>
+      <td>0.015041</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>26</th>
+      <td>100</td>
+      <td>0.004411</td>
+      <td>0.064659</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>27</th>
+      <td>267</td>
+      <td>0.004194</td>
+      <td>0.002220</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>28</th>
+      <td>273</td>
+      <td>0.004107</td>
+      <td>0.000501</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>29</th>
+      <td>247</td>
+      <td>0.004061</td>
+      <td>0.009429</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>30</th>
+      <td>8</td>
+      <td>0.003826</td>
+      <td>0.190217</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>31</th>
+      <td>193</td>
+      <td>0.003775</td>
+      <td>0.006739</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>32</th>
+      <td>0</td>
+      <td>0.003730</td>
+      <td>0.207897</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>33</th>
+      <td>18</td>
+      <td>0.003545</td>
+      <td>0.183795</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>34</th>
+      <td>52</td>
+      <td>0.003366</td>
+      <td>0.056459</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>35</th>
+      <td>271</td>
+      <td>0.003296</td>
+      <td>0.002224</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>36</th>
+      <td>140</td>
+      <td>0.002810</td>
+      <td>0.000591</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>37</th>
+      <td>63</td>
+      <td>0.002802</td>
+      <td>0.007725</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>38</th>
+      <td>240</td>
+      <td>0.002764</td>
+      <td>0.000478</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>39</th>
+      <td>24</td>
+      <td>0.002695</td>
+      <td>0.058171</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>40</th>
+      <td>153</td>
+      <td>0.002675</td>
+      <td>0.000229</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>41</th>
+      <td>95</td>
+      <td>0.002564</td>
+      <td>0.005262</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>42</th>
+      <td>138</td>
+      <td>0.002549</td>
+      <td>0.018655</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>43</th>
+      <td>246</td>
+      <td>0.002543</td>
+      <td>0.005080</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>44</th>
+      <td>66</td>
+      <td>0.002413</td>
+      <td>0.030007</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>45</th>
+      <td>78</td>
+      <td>0.002409</td>
+      <td>0.012075</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>46</th>
+      <td>232</td>
+      <td>0.002346</td>
+      <td>0.008656</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>47</th>
+      <td>231</td>
+      <td>0.002332</td>
+      <td>0.030719</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>48</th>
+      <td>150</td>
+      <td>0.002313</td>
+      <td>0.008241</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>49</th>
+      <td>9</td>
+      <td>0.002249</td>
+      <td>0.168995</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>50</th>
+      <td>5</td>
+      <td>0.002239</td>
+      <td>0.202373</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>51</th>
+      <td>264</td>
+      <td>0.002237</td>
+      <td>0.001187</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>52</th>
+      <td>16</td>
+      <td>0.002234</td>
+      <td>0.200722</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>53</th>
+      <td>157</td>
+      <td>0.002222</td>
+      <td>0.029748</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>54</th>
+      <td>201</td>
+      <td>0.002176</td>
+      <td>0.006684</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>55</th>
+      <td>269</td>
+      <td>0.002154</td>
+      <td>0.002892</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>56</th>
+      <td>121</td>
+      <td>0.002145</td>
+      <td>0.007161</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>57</th>
+      <td>139</td>
+      <td>0.002098</td>
+      <td>0.000240</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>58</th>
+      <td>209</td>
+      <td>0.002064</td>
+      <td>0.017102</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>59</th>
+      <td>113</td>
+      <td>0.002020</td>
+      <td>0.010003</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>60</th>
+      <td>22</td>
+      <td>0.002011</td>
+      <td>0.184062</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>61</th>
+      <td>270</td>
+      <td>0.001997</td>
+      <td>0.003099</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>62</th>
+      <td>119</td>
+      <td>0.001996</td>
+      <td>0.006538</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>63</th>
+      <td>107</td>
+      <td>0.001971</td>
+      <td>0.000606</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>64</th>
+      <td>190</td>
+      <td>0.001967</td>
+      <td>0.005337</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>65</th>
+      <td>212</td>
+      <td>0.001954</td>
+      <td>0.039152</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>66</th>
+      <td>192</td>
+      <td>0.001936</td>
+      <td>0.002174</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>67</th>
+      <td>215</td>
+      <td>0.001892</td>
+      <td>0.000021</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>68</th>
+      <td>276</td>
+      <td>0.001862</td>
+      <td>0.001180</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>69</th>
+      <td>179</td>
+      <td>0.001849</td>
+      <td>0.000266</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>70</th>
+      <td>183</td>
+      <td>0.001815</td>
+      <td>0.003334</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>71</th>
+      <td>67</td>
+      <td>0.001807</td>
+      <td>0.007090</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>72</th>
+      <td>272</td>
+      <td>0.001604</td>
+      <td>0.000894</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>73</th>
+      <td>23</td>
+      <td>0.001569</td>
+      <td>0.191542</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>74</th>
+      <td>218</td>
+      <td>0.001472</td>
+      <td>0.002179</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>75</th>
+      <td>182</td>
+      <td>0.001464</td>
+      <td>0.004222</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>76</th>
+      <td>76</td>
+      <td>0.001425</td>
+      <td>0.004020</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>77</th>
+      <td>45</td>
+      <td>0.001391</td>
+      <td>0.076726</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>78</th>
+      <td>233</td>
+      <td>0.001322</td>
+      <td>0.004177</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>79</th>
+      <td>137</td>
+      <td>0.001284</td>
+      <td>0.002078</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>80</th>
+      <td>206</td>
+      <td>0.001226</td>
+      <td>0.002739</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>81</th>
+      <td>28</td>
+      <td>0.001198</td>
+      <td>0.058288</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>82</th>
+      <td>196</td>
+      <td>0.001189</td>
+      <td>0.001731</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>83</th>
+      <td>244</td>
+      <td>0.001099</td>
+      <td>0.000000</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>84</th>
+      <td>30</td>
+      <td>0.001068</td>
+      <td>0.107790</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>85</th>
+      <td>169</td>
+      <td>0.001064</td>
+      <td>0.001286</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>86</th>
+      <td>46</td>
+      <td>0.001017</td>
+      <td>0.114905</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>87</th>
+      <td>41</td>
+      <td>0.000970</td>
+      <td>0.108989</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>88</th>
+      <td>133</td>
+      <td>0.000953</td>
+      <td>0.001990</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>89</th>
+      <td>85</td>
+      <td>0.000945</td>
+      <td>0.001555</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>90</th>
+      <td>92</td>
+      <td>0.000934</td>
+      <td>0.001695</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>91</th>
+      <td>278</td>
+      <td>0.000887</td>
+      <td>0.000234</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>92</th>
+      <td>47</td>
+      <td>0.000882</td>
+      <td>0.050074</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>93</th>
+      <td>43</td>
+      <td>0.000864</td>
+      <td>0.058855</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>94</th>
+      <td>102</td>
+      <td>0.000862</td>
+      <td>0.003610</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>95</th>
+      <td>31</td>
+      <td>0.000859</td>
+      <td>0.119140</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>96</th>
+      <td>35</td>
+      <td>0.000854</td>
+      <td>0.112838</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>97</th>
+      <td>245</td>
+      <td>0.000836</td>
+      <td>0.068306</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>98</th>
+      <td>25</td>
+      <td>0.000824</td>
+      <td>0.115724</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>99</th>
+      <td>191</td>
+      <td>0.000794</td>
+      <td>0.001015</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>100</th>
+      <td>33</td>
+      <td>0.000779</td>
+      <td>0.054157</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>101</th>
+      <td>36</td>
+      <td>0.000776</td>
+      <td>0.114312</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>102</th>
+      <td>26</td>
+      <td>0.000776</td>
+      <td>0.118753</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>103</th>
+      <td>120</td>
+      <td>0.000729</td>
+      <td>0.000872</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>104</th>
+      <td>103</td>
+      <td>0.000704</td>
+      <td>0.008166</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>105</th>
+      <td>142</td>
+      <td>0.000674</td>
+      <td>0.065440</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>106</th>
+      <td>256</td>
+      <td>0.000670</td>
+      <td>0.000717</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>107</th>
+      <td>38</td>
+      <td>0.000659</td>
+      <td>0.050571</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>108</th>
+      <td>40</td>
+      <td>0.000654</td>
+      <td>0.104771</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>109</th>
+      <td>260</td>
+      <td>0.000638</td>
+      <td>0.002067</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>110</th>
+      <td>87</td>
+      <td>0.000603</td>
+      <td>0.005123</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>111</th>
+      <td>257</td>
+      <td>0.000582</td>
+      <td>0.000090</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>112</th>
+      <td>254</td>
+      <td>0.000576</td>
+      <td>0.002906</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>113</th>
+      <td>71</td>
+      <td>0.000566</td>
+      <td>0.015419</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>114</th>
+      <td>118</td>
+      <td>0.000533</td>
+      <td>0.002391</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>115</th>
+      <td>185</td>
+      <td>0.000468</td>
+      <td>0.000799</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>116</th>
+      <td>44</td>
+      <td>0.000455</td>
+      <td>0.022696</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>117</th>
+      <td>141</td>
+      <td>0.000441</td>
+      <td>0.000782</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>118</th>
+      <td>2</td>
+      <td>0.000429</td>
+      <td>0.008284</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>119</th>
+      <td>217</td>
+      <td>0.000426</td>
+      <td>0.005095</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>120</th>
+      <td>29</td>
+      <td>0.000421</td>
+      <td>0.028234</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>121</th>
+      <td>143</td>
+      <td>0.000417</td>
+      <td>0.000476</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>122</th>
+      <td>17</td>
+      <td>0.000383</td>
+      <td>0.002869</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>123</th>
+      <td>174</td>
+      <td>0.000336</td>
+      <td>0.001625</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>124</th>
+      <td>250</td>
+      <td>0.000321</td>
+      <td>0.001936</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>125</th>
+      <td>173</td>
+      <td>0.000271</td>
+      <td>0.000967</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>126</th>
+      <td>97</td>
+      <td>0.000228</td>
+      <td>0.001750</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>127</th>
+      <td>163</td>
+      <td>0.000218</td>
+      <td>0.000000</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>128</th>
+      <td>127</td>
+      <td>0.000213</td>
+      <td>0.008227</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>129</th>
+      <td>230</td>
+      <td>0.000206</td>
+      <td>0.000196</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>130</th>
+      <td>144</td>
+      <td>0.000167</td>
+      <td>0.002444</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>131</th>
+      <td>186</td>
+      <td>0.000151</td>
+      <td>0.000875</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>132</th>
+      <td>241</td>
+      <td>0.000106</td>
+      <td>0.003169</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>133</th>
+      <td>210</td>
+      <td>0.000103</td>
+      <td>0.000364</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>134</th>
+      <td>236</td>
+      <td>0.000078</td>
+      <td>0.000846</td>
+      <td>True</td>
+    </tr>
+    <tr>
+      <th>135</th>
+      <td>116</td>
+      <td>0.000074</td>
+      <td>0.002047</td>
+      <td>True</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+----------
+
+### Dimensionality reduction
+
+"Dimensionality reduction refers to techniques that reduce the number of input variables in a dataset. Fewer input dimensions often mean correspondingly fewer parameters or a simpler structure in the machine learning model, referred to as degrees of freedom. A model with too many degrees of freedom is likely to overfit the training dataset and therefore may not perform well on new data" (BROWNLEE, 2021).
+
+There are several techniques to reduce a data set dimensionality. **In this notebook, we use the Principal Component Analysis (PCA), which is the most used method for dimensionality reduction**. "It can be thought of as a projection method where data with m-columns (features) is projected into a subspace with m or fewer columns, whilst retaining the essence of the original data" (BROWNLEE, 2021). 
+
+We reduce the dimensionality of the data set using the same number of features used in the feature selection section, 30, 70, 150, and 190. **We verify that the results are quite similar to the ones we obtained in the feature selection and that the level of the dimensionality reduction have little influence in the results**. Besides, once more the KNN model is better than the other models tested.
+
+
+```python
+from sklearn.decomposition import PCA
+
+def estimator_pca(estimator,k):
+    #imputer = SimpleImputer(strategy='median')
+    pipeline = Pipeline(steps=[('pca',PCA(n_components=k)),('model', estimator)])
+    return pipeline 
+
+def estimator_cross_val_pca(k,model,estimator,pipe,matriz,rs,X,y):
+    pipe_ = pipe(estimator,k)
+    scoring = ['neg_mean_absolute_error', 'neg_root_mean_squared_error','r2']
+    kfold = KFold(n_splits=5, random_state=rs,shuffle=True)
+    scores = cross_validate(pipe_,X,y,cv=kfold,scoring=scoring)
+    
+    mae_scores = -scores.get('test_neg_mean_absolute_error')
+    mae_mean = mae_scores.mean()
+    mae_std = mae_scores.std()
+    
+    rmse_scores = -scores.get('test_neg_root_mean_squared_error')
+    rmse_mean = rmse_scores.mean()
+    rmse_std = rmse_scores.std()
+    
+    r2_scores = scores.get('test_r2')
+    r2_mean = r2_scores.mean()
+    r2_std = r2_scores.std()
+    
+    results_ = [k,model,mae_mean,mae_std,rmse_mean,rmse_std,r2_mean,r2_std]
+    results_ = pd.Series(results_, index = matriz.columns)
+    results = matriz.append(results_,ignore_index=True)
+    return results
+
+matriz_pca = pd.DataFrame(columns=['dimensionality','model','MAE_mean','MAE_std','RMSE_mean','RMSE_std','R2_mean','R2_std'])
+
+for k in [30,70,150,190]:
+  
+    matriz_pca = estimator_cross_val_pca(k,'Linear Regression',LinearRegression(),     estimator_pca,matriz_pca,rs,blog_X_train,blog_y_train)
+    matriz_pca = estimator_cross_val_pca(k,'Ridge Regression', Ridge(),                estimator_pca,matriz_pca,rs,blog_X_train,blog_y_train)
+    matriz_pca = estimator_cross_val_pca(k,'Lasso',            Lasso(),                estimator_pca,matriz_pca,rs,blog_X_train,blog_y_train)
+    matriz_pca = estimator_cross_val_pca(k,'Elastic Net',      ElasticNet(),           estimator_pca,matriz_pca,rs,blog_X_train,blog_y_train)
+    matriz_pca = estimator_cross_val_pca(k,'KNN',              KNeighborsRegressor(),  estimator_pca,matriz_pca,rs,blog_X_train,blog_y_train)
+    matriz_pca = estimator_cross_val_pca(k,'CART',             DecisionTreeRegressor(),estimator_pca,matriz_pca,rs,blog_X_train,blog_y_train)
+
+matriz_pca
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>dimensionality</th>
+      <th>model</th>
+      <th>MAE_mean</th>
+      <th>MAE_std</th>
+      <th>RMSE_mean</th>
+      <th>RMSE_std</th>
+      <th>R2_mean</th>
+      <th>R2_std</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>30</td>
+      <td>Linear Regression</td>
+      <td>9.181340</td>
+      <td>0.086859</td>
+      <td>30.331096</td>
+      <td>2.126018</td>
+      <td>0.350834</td>
+      <td>0.048291</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>30</td>
+      <td>Ridge Regression</td>
+      <td>9.181343</td>
+      <td>0.086857</td>
+      <td>30.331102</td>
+      <td>2.126015</td>
+      <td>0.350834</td>
+      <td>0.048291</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>30</td>
+      <td>Lasso</td>
+      <td>9.129022</td>
+      <td>0.092453</td>
+      <td>30.294741</td>
+      <td>2.140151</td>
+      <td>0.352380</td>
+      <td>0.048943</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>30</td>
+      <td>Elastic Net</td>
+      <td>9.152400</td>
+      <td>0.092614</td>
+      <td>30.305149</td>
+      <td>2.131907</td>
+      <td>0.351940</td>
+      <td>0.048552</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>30</td>
+      <td>KNN</td>
+      <td>6.387640</td>
+      <td>0.183435</td>
+      <td>28.574896</td>
+      <td>1.109788</td>
+      <td>0.421874</td>
+      <td>0.043481</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>30</td>
+      <td>CART</td>
+      <td>6.836427</td>
+      <td>0.497267</td>
+      <td>36.743567</td>
+      <td>3.679492</td>
+      <td>0.042285</td>
+      <td>0.157737</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>70</td>
+      <td>Linear Regression</td>
+      <td>9.301259</td>
+      <td>0.082636</td>
+      <td>30.335895</td>
+      <td>2.124918</td>
+      <td>0.350627</td>
+      <td>0.048267</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>70</td>
+      <td>Ridge Regression</td>
+      <td>9.299170</td>
+      <td>0.081941</td>
+      <td>30.336846</td>
+      <td>2.121471</td>
+      <td>0.350581</td>
+      <td>0.048194</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>70</td>
+      <td>Lasso</td>
+      <td>9.129022</td>
+      <td>0.092453</td>
+      <td>30.294741</td>
+      <td>2.140151</td>
+      <td>0.352380</td>
+      <td>0.048943</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>70</td>
+      <td>Elastic Net</td>
+      <td>9.151207</td>
+      <td>0.092924</td>
+      <td>30.305377</td>
+      <td>2.132085</td>
+      <td>0.351930</td>
+      <td>0.048574</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>70</td>
+      <td>KNN</td>
+      <td>6.389464</td>
+      <td>0.189621</td>
+      <td>28.576422</td>
+      <td>1.107976</td>
+      <td>0.421791</td>
+      <td>0.043774</td>
+    </tr>
+    <tr>
+      <th>11</th>
+      <td>70</td>
+      <td>CART</td>
+      <td>6.917342</td>
+      <td>0.304737</td>
+      <td>36.159541</td>
+      <td>2.953660</td>
+      <td>0.070975</td>
+      <td>0.139547</td>
+    </tr>
+    <tr>
+      <th>12</th>
+      <td>150</td>
+      <td>Linear Regression</td>
+      <td>9.462956</td>
+      <td>0.090607</td>
+      <td>30.362443</td>
+      <td>2.110180</td>
+      <td>0.349499</td>
+      <td>0.047557</td>
+    </tr>
+    <tr>
+      <th>13</th>
+      <td>150</td>
+      <td>Ridge Regression</td>
+      <td>9.461919</td>
+      <td>0.089732</td>
+      <td>30.362698</td>
+      <td>2.110798</td>
+      <td>0.349487</td>
+      <td>0.047592</td>
+    </tr>
+    <tr>
+      <th>14</th>
+      <td>150</td>
+      <td>Lasso</td>
+      <td>9.129022</td>
+      <td>0.092453</td>
+      <td>30.294741</td>
+      <td>2.140151</td>
+      <td>0.352380</td>
+      <td>0.048943</td>
+    </tr>
+    <tr>
+      <th>15</th>
+      <td>150</td>
+      <td>Elastic Net</td>
+      <td>9.151207</td>
+      <td>0.092924</td>
+      <td>30.305377</td>
+      <td>2.132085</td>
+      <td>0.351930</td>
+      <td>0.048574</td>
+    </tr>
+    <tr>
+      <th>16</th>
+      <td>150</td>
+      <td>KNN</td>
+      <td>6.387296</td>
+      <td>0.189732</td>
+      <td>28.573651</td>
+      <td>1.106584</td>
+      <td>0.421894</td>
+      <td>0.043846</td>
+    </tr>
+    <tr>
+      <th>17</th>
+      <td>150</td>
+      <td>CART</td>
+      <td>7.317104</td>
+      <td>0.255888</td>
+      <td>38.010531</td>
+      <td>3.331500</td>
+      <td>-0.020517</td>
+      <td>0.120541</td>
+    </tr>
+    <tr>
+      <th>18</th>
+      <td>190</td>
+      <td>Linear Regression</td>
+      <td>9.509379</td>
+      <td>0.089502</td>
+      <td>30.372373</td>
+      <td>2.107230</td>
+      <td>0.349070</td>
+      <td>0.047495</td>
+    </tr>
+    <tr>
+      <th>19</th>
+      <td>190</td>
+      <td>Ridge Regression</td>
+      <td>9.508233</td>
+      <td>0.089958</td>
+      <td>30.372129</td>
+      <td>2.106809</td>
+      <td>0.349079</td>
+      <td>0.047486</td>
+    </tr>
+    <tr>
+      <th>20</th>
+      <td>190</td>
+      <td>Lasso</td>
+      <td>9.129022</td>
+      <td>0.092453</td>
+      <td>30.294741</td>
+      <td>2.140151</td>
+      <td>0.352380</td>
+      <td>0.048943</td>
+    </tr>
+    <tr>
+      <th>21</th>
+      <td>190</td>
+      <td>Elastic Net</td>
+      <td>9.151207</td>
+      <td>0.092924</td>
+      <td>30.305377</td>
+      <td>2.132085</td>
+      <td>0.351930</td>
+      <td>0.048574</td>
+    </tr>
+    <tr>
+      <th>22</th>
+      <td>190</td>
+      <td>KNN</td>
+      <td>6.388800</td>
+      <td>0.190134</td>
+      <td>28.574231</td>
+      <td>1.108647</td>
+      <td>0.421881</td>
+      <td>0.043761</td>
+    </tr>
+    <tr>
+      <th>23</th>
+      <td>190</td>
+      <td>CART</td>
+      <td>7.131948</td>
+      <td>0.302353</td>
+      <td>37.091357</td>
+      <td>3.460719</td>
+      <td>0.026693</td>
+      <td>0.135815</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+---------
+
+# 3. Evaluate the ML model
+
+Now evaluate the performance of our ML model in the test set, to see how it perform with unseen data.
+
+We will do two tests. In the first one we use the KNN model and the 30 features selected using the RFE method. For the second test, we use the KNN model and the data set reduced using the PCA method.
+
+First, we import the test set.
+
+After testing the models, we verify that the performance of our model with the test set is similar to the performance with the train set. The MAE and RMSE are actually a little better but the R² is lower. Besides, the RMSE is considrably higher than the MAE. This result suggests that our data has many outliers and, consequently, our model is making some big errors.
+
+Finally, we see that using the features selected by the RFE method and doing a dimensionality reduction using the PCA have similiar results.
+
+### Getting the test set
+
+
+```python
+import os
+import glob
+
+os.chdir(r"/Users/leuzinger/Dropbox/Data Science/Awari/Regressions/BlogFeedback/Test/")
+filenames = [i for i in glob.glob("*.csv")]
+df = [pd.read_csv(file, sep = ",", header=None,) 
+      for file in filenames]
+```
+
+
+```python
+blog_test = df[0]
+
+for i in range(1,len(df)):
+    blog_test = blog_test.append(df[i]) 
+
+blog_test.reset_index(drop=True,inplace=True)
+blog_test.set_axis(att,axis=1,inplace=True)
+blog_test.head()
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>blog_avg_total</th>
+      <th>blog_std_total</th>
+      <th>blog_min_total</th>
+      <th>blog_max_total</th>
+      <th>blog_median_total</th>
+      <th>blog_avg_last24h</th>
+      <th>blog_std_last24h</th>
+      <th>blog_min_last24h</th>
+      <th>blog_max_last24h</th>
+      <th>blog_median_last24h</th>
+      <th>blog_avg_24-48h</th>
+      <th>blog_std_24-48h</th>
+      <th>blog_min_24-48h</th>
+      <th>blog_max_24-48h</th>
+      <th>blog_median_24-48h</th>
+      <th>blog_avg_first24h</th>
+      <th>blog_std_first24h</th>
+      <th>blog_min_first24h</th>
+      <th>blog_max_first24h</th>
+      <th>blog_median_first24h</th>
+      <th>blog_avg_difference</th>
+      <th>blog_std_difference</th>
+      <th>blog_min_difference</th>
+      <th>blog_max_difference</th>
+      <th>blog_median_difference</th>
+      <th>blog_avg_total_tr</th>
+      <th>blog_std_total_tr</th>
+      <th>blog_min_total_tr</th>
+      <th>blog_max_total_tr</th>
+      <th>blog_median_total_tr</th>
+      <th>blog_avg_last24h_tr</th>
+      <th>blog_std_last24h_tr</th>
+      <th>blog_min_last24h_tr</th>
+      <th>blog_max_last24h_tr</th>
+      <th>blog_median_last24h_tr</th>
+      <th>blog_avg_24-48h_tr</th>
+      <th>blog_std_24-48h_tr</th>
+      <th>blog_min_24-48h_tr</th>
+      <th>blog_max_24-48h_tr</th>
+      <th>blog_median_24-48h_tr</th>
+      <th>blog_avg_first24h_tr</th>
+      <th>blog_std_first24h_tr</th>
+      <th>blog_min_first24h_tr</th>
+      <th>blog_max_first24h_tr</th>
+      <th>blog_median_first24h_tr</th>
+      <th>blog_avg_difference_tr</th>
+      <th>blog_std_difference_tr</th>
+      <th>blog_min_difference_tr</th>
+      <th>blog_max_difference_tr</th>
+      <th>blog_median_difference_tr</th>
+      <th>total</th>
+      <th>last24h</th>
+      <th>24-48h</th>
+      <th>first24h</th>
+      <th>difference</th>
+      <th>total_tr</th>
+      <th>last24h_tr</th>
+      <th>24-48h_tr</th>
+      <th>first24h_tr</th>
+      <th>difference_tr</th>
+      <th>time_first_post</th>
+      <th>lenght_post</th>
+      <th>word1</th>
+      <th>word2</th>
+      <th>word3</th>
+      <th>word4</th>
+      <th>word5</th>
+      <th>word6</th>
+      <th>word7</th>
+      <th>word8</th>
+      <th>word9</th>
+      <th>word10</th>
+      <th>word11</th>
+      <th>word12</th>
+      <th>word13</th>
+      <th>word14</th>
+      <th>word15</th>
+      <th>word16</th>
+      <th>word17</th>
+      <th>word18</th>
+      <th>word19</th>
+      <th>word20</th>
+      <th>word21</th>
+      <th>word22</th>
+      <th>word23</th>
+      <th>word24</th>
+      <th>word25</th>
+      <th>word26</th>
+      <th>word27</th>
+      <th>word28</th>
+      <th>word29</th>
+      <th>word30</th>
+      <th>word31</th>
+      <th>word32</th>
+      <th>word33</th>
+      <th>word34</th>
+      <th>word35</th>
+      <th>word36</th>
+      <th>word37</th>
+      <th>word38</th>
+      <th>word39</th>
+      <th>word40</th>
+      <th>word41</th>
+      <th>word42</th>
+      <th>word43</th>
+      <th>word44</th>
+      <th>word45</th>
+      <th>word46</th>
+      <th>word47</th>
+      <th>word48</th>
+      <th>word49</th>
+      <th>word50</th>
+      <th>word51</th>
+      <th>word52</th>
+      <th>word53</th>
+      <th>word54</th>
+      <th>word55</th>
+      <th>word56</th>
+      <th>word57</th>
+      <th>word58</th>
+      <th>word59</th>
+      <th>word60</th>
+      <th>word61</th>
+      <th>word62</th>
+      <th>word63</th>
+      <th>word64</th>
+      <th>word65</th>
+      <th>word66</th>
+      <th>word67</th>
+      <th>word68</th>
+      <th>word69</th>
+      <th>word70</th>
+      <th>word71</th>
+      <th>word72</th>
+      <th>word73</th>
+      <th>word74</th>
+      <th>word75</th>
+      <th>word76</th>
+      <th>word77</th>
+      <th>word78</th>
+      <th>word79</th>
+      <th>word80</th>
+      <th>word81</th>
+      <th>word82</th>
+      <th>word83</th>
+      <th>word84</th>
+      <th>word85</th>
+      <th>word86</th>
+      <th>word87</th>
+      <th>word88</th>
+      <th>word89</th>
+      <th>word90</th>
+      <th>word91</th>
+      <th>word92</th>
+      <th>word93</th>
+      <th>word94</th>
+      <th>word95</th>
+      <th>word96</th>
+      <th>word97</th>
+      <th>word98</th>
+      <th>word99</th>
+      <th>word100</th>
+      <th>word101</th>
+      <th>word102</th>
+      <th>word103</th>
+      <th>word104</th>
+      <th>word105</th>
+      <th>word106</th>
+      <th>word107</th>
+      <th>word108</th>
+      <th>word109</th>
+      <th>word110</th>
+      <th>word111</th>
+      <th>word112</th>
+      <th>word113</th>
+      <th>word114</th>
+      <th>word115</th>
+      <th>word116</th>
+      <th>word117</th>
+      <th>word118</th>
+      <th>word119</th>
+      <th>word120</th>
+      <th>word121</th>
+      <th>word122</th>
+      <th>word123</th>
+      <th>word124</th>
+      <th>word125</th>
+      <th>word126</th>
+      <th>word127</th>
+      <th>word128</th>
+      <th>word129</th>
+      <th>word130</th>
+      <th>word131</th>
+      <th>word132</th>
+      <th>word133</th>
+      <th>word134</th>
+      <th>word135</th>
+      <th>word136</th>
+      <th>word137</th>
+      <th>word138</th>
+      <th>word139</th>
+      <th>word140</th>
+      <th>word141</th>
+      <th>word142</th>
+      <th>word143</th>
+      <th>word144</th>
+      <th>word145</th>
+      <th>word146</th>
+      <th>word147</th>
+      <th>word148</th>
+      <th>word149</th>
+      <th>word150</th>
+      <th>word151</th>
+      <th>word152</th>
+      <th>word153</th>
+      <th>word154</th>
+      <th>word155</th>
+      <th>word156</th>
+      <th>word157</th>
+      <th>word158</th>
+      <th>word159</th>
+      <th>word160</th>
+      <th>word161</th>
+      <th>word162</th>
+      <th>word163</th>
+      <th>word164</th>
+      <th>word165</th>
+      <th>word166</th>
+      <th>word167</th>
+      <th>word168</th>
+      <th>word169</th>
+      <th>word170</th>
+      <th>word171</th>
+      <th>word172</th>
+      <th>word173</th>
+      <th>word174</th>
+      <th>word175</th>
+      <th>word176</th>
+      <th>word177</th>
+      <th>word178</th>
+      <th>word179</th>
+      <th>word180</th>
+      <th>word181</th>
+      <th>word182</th>
+      <th>word183</th>
+      <th>word184</th>
+      <th>word185</th>
+      <th>word186</th>
+      <th>word187</th>
+      <th>word188</th>
+      <th>word189</th>
+      <th>word190</th>
+      <th>word191</th>
+      <th>word192</th>
+      <th>word193</th>
+      <th>word194</th>
+      <th>word195</th>
+      <th>word196</th>
+      <th>word197</th>
+      <th>word198</th>
+      <th>word199</th>
+      <th>word200</th>
+      <th>Mon_bl</th>
+      <th>Tue_bl</th>
+      <th>Wed_bl</th>
+      <th>Thu_bl</th>
+      <th>Fri_bl</th>
+      <th>Sat_bl</th>
+      <th>Sun_bl</th>
+      <th>Mon_post</th>
+      <th>Tue_post</th>
+      <th>Wed_post</th>
+      <th>Thu_post</th>
+      <th>Fri_post</th>
+      <th>Sat_post</th>
+      <th>Sun_post</th>
+      <th>parent_pages</th>
+      <th>min_parent</th>
+      <th>max_parent</th>
+      <th>avg_parent</th>
+      <th>target</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.064516</td>
+      <td>0.24567</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.032258</td>
+      <td>0.176685</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.032258</td>
+      <td>0.176685</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.254</td>
+      <td>-1.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>50.0</td>
+      <td>1470.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.00000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>102.0</td>
+      <td>91.0</td>
+      <td>11.0</td>
+      <td>101.0</td>
+      <td>80.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>2.0</td>
+      <td>27.0</td>
+      <td>3520.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>0.056075</td>
+      <td>0.330159</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.018692</td>
+      <td>0.192442</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.018692</td>
+      <td>0.192442</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.056075</td>
+      <td>0.330159</td>
+      <td>0.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.273434</td>
+      <td>-2.0</td>
+      <td>2.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.00000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>16.0</td>
+      <td>800.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.064516</td>
+      <td>0.24567</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.032258</td>
+      <td>0.176685</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.032258</td>
+      <td>0.176685</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.254</td>
+      <td>-1.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>51.0</td>
+      <td>1468.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>47.776787</td>
+      <td>93.737470</td>
+      <td>1.0</td>
+      <td>598.0</td>
+      <td>7.5</td>
+      <td>17.857143</td>
+      <td>56.888218</td>
+      <td>0.0</td>
+      <td>594.0</td>
+      <td>1.0</td>
+      <td>17.350447</td>
+      <td>56.911470</td>
+      <td>0.0</td>
+      <td>594.0</td>
+      <td>1.0</td>
+      <td>46.386160</td>
+      <td>91.284140</td>
+      <td>1.0</td>
+      <td>595.0</td>
+      <td>7.0</td>
+      <td>0.506696</td>
+      <td>79.062050</td>
+      <td>-590.0</td>
+      <td>594.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.00000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000000</td>
+      <td>0.000000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.000</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>5.0</td>
+      <td>5.0</td>
+      <td>0.0</td>
+      <td>5.0</td>
+      <td>5.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>14.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+blog_test.info()
+```
+
+    <class 'pandas.core.frame.DataFrame'>
+    RangeIndex: 7624 entries, 0 to 7623
+    Columns: 281 entries, blog_avg_total to target
+    dtypes: float64(281)
+    memory usage: 16.3 MB
+
+
+
+```python
+blog_X_test = blog_test.drop('target',axis=1).copy()
+blog_y_test = blog_test['target'].copy()
+```
+
+### Evaluating the ML models
+
+
+```python
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+rfe = RFE(estimator=DecisionTreeRegressor(), n_features_to_select=30) 
+knn = KNeighborsRegressor()
+pipe_rfe = Pipeline(steps=[('rfe',rfe),('knn',knn)])
+
+pipe_rfe.fit(blog_X_train,blog_y_train)
+blog_y_hat = pipe_rfe.predict(blog_X_test)
+
+final_mae = mean_absolute_error(blog_y_test,blog_y_hat)
+final_mse = mean_squared_error(blog_y_test,blog_y_hat)
+final_rmse = np.sqrt(final_mse)
+final_r2 = r2_score(blog_y_test,blog_y_hat)
+print('MAE:  %.2f'%final_mae,'\nRMSE: %.2f'%final_rmse,'\nR2:   %.2f'%final_r2)
+```
+
+    MAE:  5.79 
+    RMSE: 25.10 
+    R2:   0.32
+
+
+
+```python
+pipe_pca = Pipeline(steps=[('pca',PCA(n_components=30)),('knn', KNeighborsRegressor())])
+pipe_pca.fit(blog_X_train,blog_y_train)
+blog_y_hat = pipe_pca.predict(blog_X_test)
+
+final_mae = mean_absolute_error(blog_y_test,blog_y_hat)
+final_mse = mean_squared_error(blog_y_test,blog_y_hat)
+final_rmse = np.sqrt(final_mse)
+final_r2 = r2_score(blog_y_test,blog_y_hat)
+print('MAE:  %.2f'%final_mae,'\nRMSE: %.2f'%final_rmse,'\nR2:   %.2f'%final_r2)
+```
+
+    MAE:  5.72 
+    RMSE: 25.10 
+    R2:   0.32
+
+
+----------------------
+
+## 4. Conclusion
+
+In this notebook, we created a model to predict the number of blog posts in the next 24h based on several attributes of the post. First, we tested some regression models: 
+
+1. Linear regression
+2. Ridge regression
+3. Lasso regression
+4. Elastic Net
+5. Classification and Regression Trees (CART)
+6. k-Nearest Neighbors (KNN)
+
+In this first tests, the KNN was the best performing method.
+
+However, we verified that the large number of features in our data was demanding a high computing time to run the models. Therefore, we tested some techniques to reduce the number of features:
+
+1. Mutual Information Statistics
+2. Recursive Feature Elimination (RFE)
+3. Random Forest
+
+The features selected by the RFE were the ones that resulted in the best performance of the KNN model.
+
+Finaly, we also used a dimensionality reduction method, the Principal Component Analysis (PCA) to reduce the size of our data set. Our results with the train set showed that both the RFE and the PCA, combined with the KNN model, had similar results.
+
+**Therefore, we tested two models with our test set: (i) KNN + RFE and (ii) KNN + PCA. We verified that the models performed our identically**.
+
+**However, our models performed modestly at best. All evaluation metrics used are poor**, especially the RMSE and the R². The fact that the RMSE is much higher than the suggests that our data has many outliers and, consequently, our model is making some big errors. **Nonetheless, given that these are quite simple regression methods, we could consider that the results are reasonable**. More complex models could be used to achieve better predictions. However, these models would probably demand more time to build and more computing power to run, which could actually mean a worse cost-benefit.
