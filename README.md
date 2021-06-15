@@ -13,7 +13,7 @@ All dependencies can be found in the file  `requirements.txt`, but are also list
 
 To install the dependencies run in the project's main folder : `pip install -r requirements.txt`. 
 
-To access the Jupyter Notebook that I created, run in the root folder of the `jupyter notebook` project. Soon after, your browser will open and just select the file `Forecasting passenger traffic.ipynb`.  
+To access the Jupyter Notebook that I created, run in the root folder of the `jupyter notebook` project. Soon after, your browser will open and just select the file `BlogFeedback Data Set.ipynb`.  
 
 # Project structure
 
