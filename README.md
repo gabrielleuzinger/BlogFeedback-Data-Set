@@ -27,6 +27,6 @@ To access the Jupyter Notebook that I created, run in the root folder of the `ju
   |- requirements.txt
 ```
 
-The folder `report` contains an md file with a version of the report generated from the study done on that project. This file contains **all the insights and studies that were done, as well as a detailed description of how the project was developed**.
+The folder `report` contains a md file with a version of the report generated from the study done on that project. This file contains **all the insights and studies that were done, as well as a detailed description of how the project was developed**.
 
 **All references used to create this project are described in the report**. 
